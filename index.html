@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d0f12">
@@ -20,6 +20,7 @@
     color-scheme: dark;
   }
   html, body { height: 100%; margin: 0; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font);
     display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none;
@@ -79,10 +80,11 @@
   body.fs { background: #000; }
   :root:has(body.fs) { padding: 0; }
   /* 影片區直接貼齊「目前可見的畫面」，旋轉或網址列收合時自動跟著縮放，不會超出 */
+  /* 尺寸由 JS 依實際可見畫面寫入 --appW / --appH，旋轉後重新量測 */
+  body.fs { position: fixed; inset: 0; overflow: hidden; }
   body.fs #stage {
     position: fixed; top: 0; left: 0; z-index: 10;
-    width: 100vw; height: 100vh;
-    width: 100dvw; height: 100dvh;
+    width: var(--appW, 100vw); height: var(--appH, 100vh);
   }
 </style>
 </head>
@@ -274,7 +276,7 @@ $('rate').onchange = e => {
 const isFs = () => document.body.classList.contains('fs');
 async function enterFs() {
   document.body.classList.add('fs');
-  window.scrollTo(0, 0);
+  fitViewport();
   const el = document.documentElement;
   try {
     if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
@@ -287,9 +289,32 @@ async function exitFs() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
   } catch (e) {}
-  window.scrollTo(0, 0);
+  onRotate();
 }
 const toggleFs = () => (isFs() ? exitFs() : enterFs());
+
+/* 旋轉時：瀏覽器常沿用直向的尺寸或自動放大，這裡強制重新量測並還原縮放 */
+const vpMeta = document.querySelector('meta[name=viewport]');
+function fitViewport() {
+  const vv = window.visualViewport;
+  const w = Math.round(vv ? vv.width : window.innerWidth);
+  const h = Math.round(vv ? vv.height : window.innerHeight);
+  const r = document.documentElement.style;
+  r.setProperty('--appW', w + 'px');
+  r.setProperty('--appH', h + 'px');
+  window.scrollTo(0, 0);
+}
+function onRotate() {
+  const c = vpMeta.content;                       // 重設 viewport 讓 iOS 取消旋轉時的自動放大
+  vpMeta.content = c + ', width=device-width';
+  vpMeta.content = c;
+  [0, 150, 400, 800].forEach(ms => setTimeout(fitViewport, ms)); // 部分手機旋轉後尺寸會晚一點才更新
+}
+window.addEventListener('orientationchange', onRotate);
+window.addEventListener('resize', fitViewport);
+if (window.visualViewport) visualViewport.addEventListener('resize', fitViewport);
+if (screen.orientation) screen.orientation.addEventListener('change', onRotate);
+fitViewport();
 $('fsBtn').onclick = toggleFs;
 // 用系統返回鍵 / Esc 離開原生全螢幕時，同步回視窗模式
 ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
