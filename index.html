@@ -78,6 +78,12 @@
   body.fs #bar, body.fs #msg, body.fs #ctrl { display: none; }
   body.fs { background: #000; }
   :root:has(body.fs) { padding: 0; }
+  /* 影片區直接貼齊「目前可見的畫面」，旋轉或網址列收合時自動跟著縮放，不會超出 */
+  body.fs #stage {
+    position: fixed; top: 0; left: 0; z-index: 10;
+    width: 100vw; height: 100vh;
+    width: 100dvw; height: 100dvh;
+  }
 </style>
 </head>
 <body>
@@ -268,11 +274,11 @@ $('rate').onchange = e => {
 const isFs = () => document.body.classList.contains('fs');
 async function enterFs() {
   document.body.classList.add('fs');
+  window.scrollTo(0, 0);
   const el = document.documentElement;
   try {
     if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
     else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
   } catch (e) {}
 }
 async function exitFs() {
@@ -280,8 +286,8 @@ async function exitFs() {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
     else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
-    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
   } catch (e) {}
+  window.scrollTo(0, 0);
 }
 const toggleFs = () => (isFs() ? exitFs() : enterFs());
 $('fsBtn').onclick = toggleFs;
@@ -293,20 +299,26 @@ $('fsBtn').onclick = toggleFs;
 
 /* ========== 手勢 ========== */
 const pad = $('touch');
-let g = null, lastTap = 0, tapTimer = null;
+let g = null, lastTap = 0, tapTimer = null, holdTimer = null;
+const HOLD_MS = 700;
 
 pad.addEventListener('pointerdown', e => {
   pad.setPointerCapture(e.pointerId);
-  g = { x0: e.clientX, y0: e.clientY, axis: null, vol0: ready ? player.getVolume() : 100 };
+  g = { x0: e.clientX, y0: e.clientY, axis: null, held: false, vol0: ready ? player.getVolume() : 100 };
+  // 全螢幕時長按 0.7 秒：退回視窗模式（備用方式）
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => { if (g && !g.axis && isFs()) { g.held = true; exitFs(); } }, HOLD_MS);
 });
 pad.addEventListener('pointermove', e => {
   if (!g) return;
   const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
-  if (!g.axis && Math.hypot(dx, dy) > CFG.tapMaxMove) g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (!g.axis && Math.hypot(dx, dy) > CFG.tapMaxMove) { g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'; clearTimeout(holdTimer); }
   if (g.axis === 'y') setVol(g.vol0 - dy * CFG.volPerPx);
 });
 pad.addEventListener('pointerup', e => {
+  clearTimeout(holdTimer);
   if (!g) return;
+  if (g.held) { g = null; return; }
   const dx = e.clientX - g.x0;
   if (g.axis === 'x' && Math.abs(dx) >= CFG.swipeMin) {
     seek(dx > 0 ? STEPS[stepIdx] : -STEPS[stepIdx]);
@@ -317,7 +329,7 @@ pad.addEventListener('pointerup', e => {
   }
   g = null;
 });
-pad.addEventListener('pointercancel', () => { g = null; });
+pad.addEventListener('pointercancel', () => { clearTimeout(holdTimer); g = null; });
 
 /* 桌機鍵盤 */
 document.addEventListener('keydown', e => {
