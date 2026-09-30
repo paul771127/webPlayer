@@ -1,9 +1,8 @@
 # webPlayer
 
-手勢控制的 YouTube 播放器。
+手勢控制的 YouTube 播放器：https://paul771127.github.io/webPlayer/
 
-- 右滑 / 左滑：快進 / 倒退 5 秒
+- 右滑 / 左滑：快進 / 倒退（秒數可在下方調整）
 - 上滑 / 下滑：音量增減（iPhone 不支援）
-- 單擊：播放 / 暫停；雙擊：顯示 / 隱藏網址列
-
-網址：https://paul771127.github.io/webPlayer/
+- 單擊：播放 / 暫停；雙擊：進入 / 離開全螢幕
+- 下方控制列：跳轉秒數、播放速度、全螢幕

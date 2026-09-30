@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>手勢播放器</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0f12">
+<title>webPlayer</title>
 <style>
-  /* 版面：上方輸入列 + 下方純影片區；影片區除了影片本身不放任何東西 */
+  /* 版面：上方網址列 → 中間純影片區（無任何覆蓋圖示）→ 下方控制列（影片外） */
   :root {
     --bg: #0d0f12;
     --bar: #16191e;
@@ -19,45 +22,67 @@
   html, body { height: 100%; margin: 0; }
   body {
     background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font);
-    display: flex; flex-direction: column; overflow: hidden;
-    overscroll-behavior: none;
+    display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none;
   }
+  button, select, input { font: inherit; color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* 上方網址列 */
   #bar {
     display: flex; gap: 8px; align-items: center;
     padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
     background: var(--bar); border-bottom: 1px solid var(--line);
   }
-  #bar[hidden] { display: none !important; }
   #url {
-    flex: 1; min-width: 0; font: inherit; color: var(--fg);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-    padding: 9px 10px;
+    flex: 1; min-width: 0; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px;
   }
-  #url:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button {
-    font: inherit; color: #fff; background: var(--accent); border: 0;
-    border-radius: 6px; padding: 9px 14px; cursor: pointer; white-space: nowrap;
+  .btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 9px 14px; cursor: pointer; white-space: nowrap;
   }
-  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
   #msg { padding: 6px 16px; color: var(--muted); font-size: 12px; background: var(--bar); }
   #msg:empty { display: none; }
 
-  #stage { position: relative; flex: 1; background: #000; overflow: hidden; }
+  /* 影片區 */
+  #stage { position: relative; flex: 1; min-height: 0; background: #000; overflow: hidden; }
   #player, #stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  /* 透明手勢層：擋住 YouTube 自己的滑鼠懸停 UI，也接收所有手勢 */
   #touch {
     position: absolute; inset: 0; z-index: 2; background: transparent;
     touch-action: none; user-select: none; -webkit-user-select: none;
-    -webkit-tap-highlight-color: transparent; cursor: default;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  /* 下方控制列 */
+  #ctrl {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--bar); border-top: 1px solid var(--line);
+  }
+  .group { display: flex; align-items: center; gap: 8px; }
+  .label { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+  .stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .stepper button {
+    width: 36px; height: 36px; background: transparent; border: 0; cursor: pointer; font-size: 18px;
+  }
+  .stepper button:active { background: var(--line); }
+  #stepVal { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+  select {
+    height: 36px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
+  }
+  #fsBtn { height: 36px; padding: 0 14px; }
+
+  /* 全螢幕：只留影片 */
+  body.fs #bar, body.fs #msg, body.fs #ctrl { display: none; }
+  body.fs { background: #000; }
+  :root:has(body.fs) { padding: 0; }
 </style>
 </head>
 <body>
   <form id="bar" autocomplete="off">
     <input id="url" type="text" inputmode="url" placeholder="貼上 YouTube 網址或影片 ID"
            value="https://www.youtube.com/watch?v=aqz-KE-bpKQ">
-    <button type="submit">播放</button>
-    <button type="button" id="hideBar" class="ghost" title="隱藏輸入列（雙擊影片可叫回）">隱藏</button>
+    <button class="btn" type="submit">播放</button>
   </form>
   <div id="msg"></div>
 
@@ -66,15 +91,45 @@
     <div id="touch"></div>
   </div>
 
+  <div id="ctrl">
+    <div class="group">
+      <span class="label">快進／後退</span>
+      <div class="stepper">
+        <button type="button" id="stepDown" aria-label="減少秒數">−</button>
+        <span id="stepVal">5 秒</span>
+        <button type="button" id="stepUp" aria-label="增加秒數">+</button>
+      </div>
+    </div>
+    <div class="group">
+      <label class="label" for="rate">速度</label>
+      <select id="rate">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="1.75">1.75×</option>
+        <option value="2">2×</option>
+      </select>
+    </div>
+    <button type="button" class="btn" id="fsBtn">全螢幕</button>
+  </div>
+
 <script>
 /* ========== 設定 ========== */
-const CFG = {
-  seekStep: 5,          // 左右滑一次跳幾秒
-  swipeMin: 40,         // 判定為滑動的最小距離(px)
-  volPerPx: 0.25,       // 上下滑每 px 改變的音量(0-100)
-  tapMaxMove: 10,       // 點擊容許的位移
-  doubleTapMs: 300
+const STEPS = [1, 2, 3, 5, 10, 15, 20, 30, 60];
+const CFG = { swipeMin: 40, volPerPx: 0.25, tapMaxMove: 10, doubleTapMs: 300, mergeMs: 600 };
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 };
+let stepIdx = STEPS.indexOf(store.get('step', 5)); if (stepIdx < 0) stepIdx = 3;
+let rate = store.get('rate', 1);
+
+const $ = id => document.getElementById(id);
+const msg = t => { $('msg').textContent = t || ''; };
 
 /* ========== 網址解析 ========== */
 function parseId(input) {
@@ -92,48 +147,44 @@ function parseId(input) {
 
 /* ========== YouTube 播放器 ========== */
 let player = null, ready = false, pendingId = null;
-const msg = t => { document.getElementById('msg').textContent = t || ''; };
 
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player('player', {
-    playerVars: {
-      controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3,
-      playsinline: 1, modestbranding: 1, cc_load_policy: 0
-    },
+    playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, playsinline: 1, cc_load_policy: 0 },
     events: {
       onReady: () => { ready = true; if (pendingId) load(pendingId); },
-      onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入，或需從 http(s) 網址開啟本頁。')
+      onStateChange: e => {
+        // 換影片後 YouTube 會把速度重設回 1×，這裡補回使用者設定
+        if (e.data === YT.PlayerState.PLAYING && player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
+      },
+      onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入。')
     }
   });
 };
-(function loadApi() {
-  const s = document.createElement('script');
-  s.src = 'https://www.youtube.com/iframe_api';
-  document.head.appendChild(s);
-})();
+(() => { const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
 
 function load(id) {
   if (!ready) { pendingId = id; return; }
-  msg('');
-  player.loadVideoById(id);
+  msg(''); player.loadVideoById(id);
 }
-
-document.getElementById('bar').addEventListener('submit', e => {
+$('bar').addEventListener('submit', e => {
   e.preventDefault();
-  const id = parseId(document.getElementById('url').value);
+  const id = parseId($('url').value);
   if (!id) { msg('看不懂這個網址，請貼 youtube.com / youtu.be 連結或 11 碼影片 ID。'); return; }
   load(id);
 });
-document.getElementById('hideBar').addEventListener('click', () => {
-  document.getElementById('bar').hidden = true; msg('');
-});
 
 /* ========== 動作 ========== */
+// 連續快速滑動時合併成一次跳轉，減少 YouTube 重複緩衝
+let seekTarget = null, seekAt = 0;
 function seek(delta) {
   if (!ready) return;
+  const now = Date.now();
+  const base = (seekTarget !== null && now - seekAt < CFG.mergeMs) ? seekTarget : player.getCurrentTime();
   const dur = player.getDuration() || Infinity;
-  const t = Math.min(Math.max(player.getCurrentTime() + delta, 0), dur - 0.5);
-  player.seekTo(t, true);
+  seekTarget = Math.min(Math.max(base + delta, 0), dur - 0.5);
+  seekAt = now;
+  player.seekTo(seekTarget, true);
 }
 function setVol(v) {
   if (!ready) return;
@@ -146,51 +197,83 @@ function togglePlay() {
   player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
 }
 
+/* ========== 下方控制列 ========== */
+function renderStep() { $('stepVal').textContent = STEPS[stepIdx] + ' 秒'; store.set('step', STEPS[stepIdx]); }
+$('stepDown').onclick = () => { if (stepIdx > 0) { stepIdx--; renderStep(); } };
+$('stepUp').onclick = () => { if (stepIdx < STEPS.length - 1) { stepIdx++; renderStep(); } };
+renderStep();
+
+$('rate').value = String(rate);
+$('rate').onchange = e => {
+  rate = parseFloat(e.target.value); store.set('rate', rate);
+  if (ready) player.setPlaybackRate(rate);
+};
+
+/* ========== 全螢幕 ========== */
+// 有原生全螢幕就用（Android / 桌機），沒有（iPhone）就用網頁內全螢幕
+const isFs = () => document.body.classList.contains('fs');
+async function enterFs() {
+  document.body.classList.add('fs');
+  const el = document.documentElement;
+  try {
+    if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+  } catch (e) {}
+}
+async function exitFs() {
+  document.body.classList.remove('fs');
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
+    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+  } catch (e) {}
+}
+const toggleFs = () => (isFs() ? exitFs() : enterFs());
+$('fsBtn').onclick = toggleFs;
+// 用系統返回鍵 / Esc 離開原生全螢幕時，同步回視窗模式
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+  document.addEventListener(ev, () => {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) document.body.classList.remove('fs');
+  }));
+
 /* ========== 手勢 ========== */
-const pad = document.getElementById('touch');
+const pad = $('touch');
 let g = null, lastTap = 0, tapTimer = null;
 
 pad.addEventListener('pointerdown', e => {
   pad.setPointerCapture(e.pointerId);
   g = { x0: e.clientX, y0: e.clientY, axis: null, vol0: ready ? player.getVolume() : 100 };
 });
-
 pad.addEventListener('pointermove', e => {
   if (!g) return;
   const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
-  if (!g.axis && Math.hypot(dx, dy) > CFG.tapMaxMove)
-    g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-  if (g.axis === 'y') setVol(g.vol0 - dy * CFG.volPerPx); // 上滑 = dy 為負 = 加音量
+  if (!g.axis && Math.hypot(dx, dy) > CFG.tapMaxMove) g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (g.axis === 'y') setVol(g.vol0 - dy * CFG.volPerPx);
 });
-
 pad.addEventListener('pointerup', e => {
   if (!g) return;
-  const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+  const dx = e.clientX - g.x0;
   if (g.axis === 'x' && Math.abs(dx) >= CFG.swipeMin) {
-    seek(dx > 0 ? CFG.seekStep : -CFG.seekStep);
+    seek(dx > 0 ? STEPS[stepIdx] : -STEPS[stepIdx]);
   } else if (!g.axis) {
     const now = Date.now();
-    if (now - lastTap < CFG.doubleTapMs) {        // 雙擊：叫回 / 隱藏輸入列
-      clearTimeout(tapTimer); lastTap = 0;
-      const bar = document.getElementById('bar'); bar.hidden = !bar.hidden;
-    } else {                                      // 單擊：播放 / 暫停
-      lastTap = now;
-      tapTimer = setTimeout(togglePlay, CFG.doubleTapMs);
-    }
+    if (now - lastTap < CFG.doubleTapMs) { clearTimeout(tapTimer); lastTap = 0; toggleFs(); } // 雙擊：切換全螢幕
+    else { lastTap = now; tapTimer = setTimeout(togglePlay, CFG.doubleTapMs); }             // 單擊：播放／暫停
   }
   g = null;
 });
 pad.addEventListener('pointercancel', () => { g = null; });
 
-/* 桌機：鍵盤方向鍵、空白鍵同樣操作 */
+/* 桌機鍵盤 */
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   const map = {
-    ArrowRight: () => seek(CFG.seekStep), ArrowLeft: () => seek(-CFG.seekStep),
+    ArrowRight: () => seek(STEPS[stepIdx]), ArrowLeft: () => seek(-STEPS[stepIdx]),
     ArrowUp: () => setVol(player.getVolume() + 10), ArrowDown: () => setVol(player.getVolume() - 10),
-    ' ': togglePlay
+    ' ': togglePlay, f: toggleFs
   };
-  if (map[e.key]) { e.preventDefault(); map[e.key](); }
+  if (map[e.key] && ready) { e.preventDefault(); map[e.key](); }
 });
 </script>
 </body>
