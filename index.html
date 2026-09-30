@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>手勢播放器</title>
+<style>
+  /* 版面：上方輸入列 + 下方純影片區；影片區除了影片本身不放任何東西 */
+  :root {
+    --bg: #0d0f12;
+    --bar: #16191e;
+    --fg: #e7e9ec;
+    --muted: #8a919b;
+    --line: #2a2f37;
+    --accent: #4f8cff;
+    --font: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font);
+    display: flex; flex-direction: column; overflow: hidden;
+    overscroll-behavior: none;
+  }
+  #bar {
+    display: flex; gap: 8px; align-items: center;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+    background: var(--bar); border-bottom: 1px solid var(--line);
+  }
+  #bar[hidden] { display: none !important; }
+  #url {
+    flex: 1; min-width: 0; font: inherit; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 9px 10px;
+  }
+  #url:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    font: inherit; color: #fff; background: var(--accent); border: 0;
+    border-radius: 6px; padding: 9px 14px; cursor: pointer; white-space: nowrap;
+  }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  #msg { padding: 6px 16px; color: var(--muted); font-size: 12px; background: var(--bar); }
+  #msg:empty { display: none; }
+
+  #stage { position: relative; flex: 1; background: #000; overflow: hidden; }
+  #player, #stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  /* 透明手勢層：擋住 YouTube 自己的滑鼠懸停 UI，也接收所有手勢 */
+  #touch {
+    position: absolute; inset: 0; z-index: 2; background: transparent;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent; cursor: default;
+  }
+</style>
+</head>
+<body>
+  <form id="bar" autocomplete="off">
+    <input id="url" type="text" inputmode="url" placeholder="貼上 YouTube 網址或影片 ID"
+           value="https://www.youtube.com/watch?v=aqz-KE-bpKQ">
+    <button type="submit">播放</button>
+    <button type="button" id="hideBar" class="ghost" title="隱藏輸入列（雙擊影片可叫回）">隱藏</button>
+  </form>
+  <div id="msg"></div>
+
+  <div id="stage">
+    <div id="player"></div>
+    <div id="touch"></div>
+  </div>
+
+<script>
+/* ========== 設定 ========== */
+const CFG = {
+  seekStep: 5,          // 左右滑一次跳幾秒
+  swipeMin: 40,         // 判定為滑動的最小距離(px)
+  volPerPx: 0.25,       // 上下滑每 px 改變的音量(0-100)
+  tapMaxMove: 10,       // 點擊容許的位移
+  doubleTapMs: 300
+};
+
+/* ========== 網址解析 ========== */
+function parseId(input) {
+  const s = input.trim();
+  if (/^[\w-]{11}$/.test(s)) return s;
+  try {
+    const u = new URL(s.startsWith('http') ? s : 'https://' + s);
+    if (u.hostname.includes('youtu.be')) return u.pathname.slice(1, 12);
+    if (u.searchParams.get('v')) return u.searchParams.get('v');
+    const m = u.pathname.match(/\/(embed|shorts|live|v)\/([\w-]{11})/);
+    if (m) return m[2];
+  } catch (e) {}
+  return null;
+}
+
+/* ========== YouTube 播放器 ========== */
+let player = null, ready = false, pendingId = null;
+const msg = t => { document.getElementById('msg').textContent = t || ''; };
+
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player('player', {
+    playerVars: {
+      controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3,
+      playsinline: 1, modestbranding: 1, cc_load_policy: 0
+    },
+    events: {
+      onReady: () => { ready = true; if (pendingId) load(pendingId); },
+      onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入，或需從 http(s) 網址開啟本頁。')
+    }
+  });
+};
+(function loadApi() {
+  const s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
+
+function load(id) {
+  if (!ready) { pendingId = id; return; }
+  msg('');
+  player.loadVideoById(id);
+}
+
+document.getElementById('bar').addEventListener('submit', e => {
+  e.preventDefault();
+  const id = parseId(document.getElementById('url').value);
+  if (!id) { msg('看不懂這個網址，請貼 youtube.com / youtu.be 連結或 11 碼影片 ID。'); return; }
+  load(id);
+});
+document.getElementById('hideBar').addEventListener('click', () => {
+  document.getElementById('bar').hidden = true; msg('');
+});
+
+/* ========== 動作 ========== */
+function seek(delta) {
+  if (!ready) return;
+  const dur = player.getDuration() || Infinity;
+  const t = Math.min(Math.max(player.getCurrentTime() + delta, 0), dur - 0.5);
+  player.seekTo(t, true);
+}
+function setVol(v) {
+  if (!ready) return;
+  v = Math.round(Math.min(Math.max(v, 0), 100));
+  if (player.isMuted() && v > 0) player.unMute();
+  player.setVolume(v);
+}
+function togglePlay() {
+  if (!ready) return;
+  player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
+}
+
+/* ========== 手勢 ========== */
+const pad = document.getElementById('touch');
+let g = null, lastTap = 0, tapTimer = null;
+
+pad.addEventListener('pointerdown', e => {
+  pad.setPointerCapture(e.pointerId);
+  g = { x0: e.clientX, y0: e.clientY, axis: null, vol0: ready ? player.getVolume() : 100 };
+});
+
+pad.addEventListener('pointermove', e => {
+  if (!g) return;
+  const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+  if (!g.axis && Math.hypot(dx, dy) > CFG.tapMaxMove)
+    g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  if (g.axis === 'y') setVol(g.vol0 - dy * CFG.volPerPx); // 上滑 = dy 為負 = 加音量
+});
+
+pad.addEventListener('pointerup', e => {
+  if (!g) return;
+  const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+  if (g.axis === 'x' && Math.abs(dx) >= CFG.swipeMin) {
+    seek(dx > 0 ? CFG.seekStep : -CFG.seekStep);
+  } else if (!g.axis) {
+    const now = Date.now();
+    if (now - lastTap < CFG.doubleTapMs) {        // 雙擊：叫回 / 隱藏輸入列
+      clearTimeout(tapTimer); lastTap = 0;
+      const bar = document.getElementById('bar'); bar.hidden = !bar.hidden;
+    } else {                                      // 單擊：播放 / 暫停
+      lastTap = now;
+      tapTimer = setTimeout(togglePlay, CFG.doubleTapMs);
+    }
+  }
+  g = null;
+});
+pad.addEventListener('pointercancel', () => { g = null; });
+
+/* 桌機：鍵盤方向鍵、空白鍵同樣操作 */
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const map = {
+    ArrowRight: () => seek(CFG.seekStep), ArrowLeft: () => seek(-CFG.seekStep),
+    ArrowUp: () => setVol(player.getVolume() + 10), ArrowDown: () => setVol(player.getVolume() - 10),
+    ' ': togglePlay
+  };
+  if (map[e.key]) { e.preventDefault(); map[e.key](); }
+});
+</script>
+</body>
+</html>
