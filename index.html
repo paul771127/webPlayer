@@ -71,6 +71,8 @@
     height: 36px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
   }
   #fsBtn { height: 36px; padding: 0 14px; }
+  .toggle { cursor: pointer; }
+  .toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 
   /* 全螢幕：只留影片 */
   body.fs #bar, body.fs #msg, body.fs #ctrl { display: none; }
@@ -113,6 +115,10 @@
         <option value="2">2×</option>
       </select>
     </div>
+    <label class="group toggle" for="resume">
+      <input type="checkbox" id="resume">
+      <span class="label">記住播放進度</span>
+    </label>
     <button type="button" class="btn" id="fsBtn">全螢幕</button>
   </div>
 
@@ -146,16 +152,21 @@ function parseId(input) {
 }
 
 /* ========== YouTube 播放器 ========== */
-let player = null, ready = false, pendingId = null;
+let player = null, ready = false, pendingId = null, pendingCue = null;
 
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player('player', {
     playerVars: { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, playsinline: 1, cc_load_policy: 0 },
     events: {
-      onReady: () => { ready = true; if (pendingId) load(pendingId); },
+      onReady: () => {
+        ready = true;
+        if (pendingId) load(pendingId);
+        else if (pendingCue) player.cueVideoById({ videoId: pendingCue, startSeconds: Resume.startFor(pendingCue) });
+      },
       onStateChange: e => {
         // 換影片後 YouTube 會把速度重設回 1×，這裡補回使用者設定
         if (e.data === YT.PlayerState.PLAYING && player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
+        if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) Resume.save();
       },
       onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入。')
     }
@@ -165,7 +176,50 @@ window.onYouTubeIframeAPIReady = () => {
 
 function load(id) {
   if (!ready) { pendingId = id; return; }
-  msg(''); player.loadVideoById(id);
+  msg('');
+  const start = Resume.startFor(id);
+  player.loadVideoById({ videoId: id, startSeconds: start });
+}
+
+/* ========== 播放進度記憶（可開關） ========== */
+const Resume = (() => {
+  const KEY = 'progress', MAX = 50;
+  let on = store.get('resumeOn', true);
+  const all = () => store.get(KEY, { last: null, items: {} });
+  const curId = () => { try { return player.getVideoData().video_id || null; } catch (e) { return null; } };
+
+  function save() {
+    if (!on || !ready) return;
+    const id = curId(); if (!id) return;
+    const t = player.getCurrentTime(), dur = player.getDuration();
+    const d = all();
+    if (dur && t > dur - 10) delete d.items[id];           // 看完了就不再續播
+    else if (t > 3) d.items[id] = { t: Math.floor(t), at: Date.now() };
+    d.last = id;
+    const ids = Object.keys(d.items).sort((a, b) => d.items[b].at - d.items[a].at);
+    ids.slice(MAX).forEach(k => delete d.items[k]);        // 只保留最近 50 部
+    store.set(KEY, d);
+  }
+  return {
+    get on() { return on; },
+    set(v) { on = v; store.set('resumeOn', v); if (v) save(); },
+    startFor: id => (on && all().items[id]) ? all().items[id].t : 0,
+    lastId: () => on ? all().last : null,
+    save
+  };
+})();
+
+$('resume').checked = Resume.on;
+$('resume').onchange = e => Resume.set(e.target.checked);
+setInterval(() => { if (ready && player.getPlayerState() === YT.PlayerState.PLAYING) Resume.save(); }, 3000);
+window.addEventListener('pagehide', Resume.save);
+document.addEventListener('visibilitychange', () => { if (document.hidden) Resume.save(); });
+
+// 開啟頁面時：帶出上次的影片，停在上次的位置（手機需點一下才會出聲播放）
+const lastId = Resume.lastId();
+if (lastId) {
+  $('url').value = 'https://youtu.be/' + lastId;
+  pendingCue = lastId;
 }
 $('bar').addEventListener('submit', e => {
   e.preventDefault();
