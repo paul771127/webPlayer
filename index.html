@@ -72,6 +72,30 @@
     height: 36px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px;
   }
   #fsBtn { height: 36px; padding: 0 14px; }
+  /* 進度條：整列寬，深色軌道 + 已緩衝 + 已播放 */
+  #seekRow { flex-basis: 100%; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 38px; }
+  #tDur { text-align: right; }
+  #seek {
+    --played: 0%; --buffered: 0%;
+    flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent;
+    -webkit-appearance: none; appearance: none; cursor: pointer; touch-action: none;
+  }
+  #seek::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) var(--played), var(--muted) var(--played),
+                var(--muted) var(--buffered), var(--line) var(--buffered));
+  }
+  #seek::-moz-range-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--accent) var(--played), var(--muted) var(--played),
+                var(--muted) var(--buffered), var(--line) var(--buffered));
+  }
+  #seek::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px;
+    border-radius: 50%; background: var(--fg); border: 0;
+  }
+  #seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--fg); border: 0; }
   .toggle { cursor: pointer; }
   .toggle input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
 
@@ -102,6 +126,11 @@
   </div>
 
   <div id="ctrl">
+    <div id="seekRow">
+      <span id="tCur" class="time">0:00</span>
+      <input type="range" id="seek" min="0" max="0" step="0.1" value="0" aria-label="播放進度">
+      <span id="tDur" class="time">0:00</span>
+    </div>
     <div class="group">
       <span class="label">快進／後退</span>
       <div class="stepper">
@@ -270,6 +299,38 @@ $('rate').onchange = e => {
   rate = parseFloat(e.target.value); store.set('rate', rate);
   if (ready) player.setPlaybackRate(rate);
 };
+
+/* ========== 進度條 ========== */
+const fmt = s => {
+  s = Math.max(0, Math.floor(s || 0));
+  const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60), ss = String(s % 60).padStart(2, '0');
+  return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
+};
+const bar = $('seek');
+let dragging = false;
+function paintBar(t, dur) {
+  const pct = dur ? (t / dur) * 100 : 0;
+  bar.style.setProperty('--played', pct + '%');
+  const buf = ready ? (player.getVideoLoadedFraction() || 0) * 100 : 0;
+  bar.style.setProperty('--buffered', Math.max(buf, pct) + '%');
+}
+function tick() {
+  if (!ready || dragging) return;
+  const dur = player.getDuration() || 0, t = player.getCurrentTime() || 0;
+  if (+bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
+  bar.value = t; $('tCur').textContent = fmt(t);
+  paintBar(t, dur);
+}
+setInterval(tick, 250);
+bar.addEventListener('input', () => {             // 拖曳中：只更新顯示
+  dragging = true;
+  $('tCur').textContent = fmt(+bar.value);
+  paintBar(+bar.value, +bar.max);
+});
+bar.addEventListener('change', () => {            // 放開：跳到該位置
+  if (ready) { player.seekTo(+bar.value, true); seekTarget = null; }
+  dragging = false;
+});
 
 /* ========== 全螢幕 ========== */
 // 有原生全螢幕就用（Android / 桌機），沒有（iPhone）就用網頁內全螢幕
