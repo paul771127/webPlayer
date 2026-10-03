@@ -36,7 +36,9 @@ function errText(e) {
   return '讀取失敗：' + (text || '網路連線有問題');
 }
 const API = {
-  get key() { return store.get('apiKey', ''); },
+  // 優先用這台裝置自己貼的金鑰，沒有就用 config.js 內建的
+  get key() { return store.get('apiKey', '') || (window.WP_CONFIG || {}).apiKey || ''; },
+  get builtIn() { return !!(window.WP_CONFIG || {}).apiKey; },
   async get(path, params) {
     if (!this.key) throw new Error('NOKEY');
     const qs = new URLSearchParams({ ...params, key: this.key });
@@ -278,13 +280,17 @@ async function openChannel(ref) {
 }
 
 /* ========== 設定 ========== */
-$('apiKey').value = API.key;
+$('apiKey').value = store.get('apiKey', '');
+if (API.builtIn) {
+  $('apiKey').placeholder = '已內建金鑰，不用貼（要換才貼）';
+  $('keyStatus').textContent = '已使用內建金鑰，這台裝置不用再貼。';
+}
 $('keyForm').addEventListener('submit', async e => {
   e.preventDefault();
   const k = $('apiKey').value.trim();
   store.set('apiKey', k);
   const out = $('keyStatus');
-  if (!k) { out.textContent = '已清除金鑰。'; return; }
+  if (!k) { out.textContent = API.builtIn ? '已改回使用內建金鑰。' : '已清除金鑰。'; return; }
   out.textContent = '測試中…';
   try { await API.get('videos', { part: 'id', id: 'aqz-KE-bpKQ' }); out.textContent = '金鑰可以使用，已儲存。'; }
   catch (err) { out.textContent = err.message; }
