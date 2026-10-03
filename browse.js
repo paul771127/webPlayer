@@ -125,10 +125,12 @@ function makeList(listEl, moreBtn) {
       const r = await fetcher(next);
       if (my !== seq) return;
       st.remove();
-      r.items.forEach(v => cache.set(v.id, v));
-      listEl.insertAdjacentHTML('beforeend', r.items.map(card).join(''));
-      if (!listEl.querySelector('.vid')) listEl.innerHTML = statusHTML('沒有找到影片，試試其他關鍵字或放寬篩選條件。');
+      if (!r.render) r.items.forEach(v => cache.set(v.id, v));
+      listEl.insertAdjacentHTML('beforeend', r.items.map(r.render || card).join(''));
       next = r.next || null; moreBtn.hidden = !next;
+      if (!listEl.querySelector('.vid')) listEl.innerHTML = statusHTML(next
+        ? '這一頁沒有符合條件的結果，按「載入更多」繼續找。'
+        : '沒有找到結果，試試其他關鍵字或放寬篩選條件。');
     } catch (e) {
       if (my !== seq) return;
       st.outerHTML = statusHTML(e.message, true);
@@ -143,10 +145,10 @@ function makeList(listEl, moreBtn) {
 
 /* ========== 分頁切換 ========== */
 const Tabs = {
-  show(name) {
-    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  show(name, tab = name) {
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== 'v-' + name; });
-    store.set('tab', name);
+    store.set('tab', tab);
     $('panel').scrollTop = 0;
   }
 };
@@ -196,14 +198,16 @@ function subBtn(c) {
 }
 
 /* ========== 正在播放 ========== */
+let nowV = null;
 function showNow(v) {
+  nowV = v;
   if (!v) { $('now').hidden = true; return; }
   $('now').hidden = false;
   $('now').innerHTML = `<div class="t">${esc(v.title)}</div>` + (v.channelId ? `
     <div class="chLine">
       <button type="button" class="chLink" data-ch="${esc(v.channelId)}">${esc(v.channelTitle)}</button>
       ${subBtn({ id: v.channelId, title: v.channelTitle })}
-    </div>` : `<div class="meta">${esc(v.channelTitle || '')}</div>`);
+    </div>` : `<div class="meta">${esc(v.channelTitle || '')}</div>`) + Browse.nowExtra(v.id);
 }
 App.hooks.onPlay = async (id, meta) => {
   nowId = id;
@@ -215,7 +219,7 @@ App.hooks.onPlay = async (id, meta) => {
   // 沒有金鑰時：從播放器拿標題與作者（無法連到頻道）
   setTimeout(() => {
     if (nowId !== id) return;
-    try { const d = App.player.getVideoData(); if (d && d.title) showNow({ title: d.title, channelTitle: d.author }); } catch (e) {}
+    try { const d = App.player.getVideoData(); if (d && d.title) showNow({ id, title: d.title, channelTitle: d.author }); } catch (e) {}
   }, 1500);
 };
 
@@ -296,6 +300,13 @@ document.addEventListener('click', e => {
   else if (t.dataset.unsub) Subs.toggle({ id: t.dataset.unsub });
   else if (t.dataset.goto) Tabs.show(t.dataset.goto);
 });
+
+/* ========== 對外介面（給 series.js） ========== */
+window.Browse = {
+  API, makeList, Tabs, esc, statusHTML, card, cache, count, ago, openChannel,
+  nowExtra: () => '',
+  refreshNow: () => { if (nowV) showNow(nowV); }
+};
 
 /* ========== 起始畫面 ========== */
 Subs.render();

@@ -38,7 +38,7 @@ function parseId(input) {
 
 /* ========== YouTube 播放器 ========== */
 let player = null, ready = false, pending = null;
-const hooks = { onPlay: () => {} };   // browse.js 會接上：顯示「正在播放」資訊
+const hooks = { onPlay: () => {}, onEnded: () => {} };   // browse.js / series.js 會接上
 
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player('player', {
@@ -55,6 +55,7 @@ window.onYouTubeIframeAPIReady = () => {
         // 換影片後 YouTube 會把速度重設回 1×，這裡補回使用者設定
         if (e.data === YT.PlayerState.PLAYING && player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
         if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) Resume.save();
+        if (e.data === YT.PlayerState.ENDED) hooks.onEnded();
       },
       onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入。')
     }
