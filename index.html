@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d0f12">
 <title>webPlayer</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <!-- 播放區 -->
@@ -21,6 +21,7 @@
 
     <div id="stage">
       <div id="player"></div>
+      <video id="local" playsinline preload="metadata"></video>
       <div id="touch"></div>
       <div id="thin"><i></i></div>
     </div>
@@ -63,6 +64,7 @@
     <nav id="tabs">
       <button type="button" data-tab="search">搜尋</button>
       <button type="button" data-tab="series">劇集</button>
+      <button type="button" data-tab="local">本機</button>
       <button type="button" data-tab="channel">頻道</button>
       <button type="button" data-tab="subs">訂閱</button>
       <button type="button" data-tab="settings">設定</button>
@@ -137,6 +139,46 @@
       <div class="eps" id="srEps"></div>
     </div>
 
+    <div class="view" id="v-local" hidden>
+      <div class="srBtns">
+        <button type="button" class="btn" id="btnFiles">選擇影片</button>
+        <button type="button" class="btn ghost" id="btnDir">選擇資料夾</button>
+        <button type="button" class="btn ghost" id="lcClear" hidden>清空清單</button>
+      </div>
+      <input type="file" id="pickFiles" accept="video/*,.mkv,.avi,.ts,.m4v,.mov,.webm,.3gp,.wmv,.flv" multiple hidden>
+      <input type="file" id="pickDir" webkitdirectory multiple hidden>
+      <input id="lcKw" class="input" type="search" placeholder="篩選檔名或資料夾" aria-label="篩選檔名">
+      <div class="filters">
+        <select id="lcType" aria-label="格式">
+          <option value="all">全部格式</option>
+          <option value="mp4">MP4</option>
+          <option value="mov">MOV</option>
+          <option value="webm">WebM</option>
+          <option value="mkv">MKV</option>
+          <option value="other">其他</option>
+        </select>
+        <select id="lcLen" aria-label="長度">
+          <option value="any">不限長度</option>
+          <option value="short">4 分鐘內</option>
+          <option value="medium">4–20 分鐘</option>
+          <option value="long">20 分鐘以上</option>
+        </select>
+        <select id="lcSort" aria-label="排序">
+          <option value="nameAsc">名稱 A→Z</option>
+          <option value="nameDesc">名稱 Z→A</option>
+          <option value="new">日期 新→舊</option>
+          <option value="old">日期 舊→新</option>
+          <option value="big">檔案 大→小</option>
+          <option value="small">檔案 小→大</option>
+          <option value="long">長度 長→短</option>
+          <option value="short">長度 短→長</option>
+        </select>
+      </div>
+      <div class="meta" id="lcInfo"></div>
+      <div class="list" id="lcList"></div>
+      <p class="meta">重新整理頁面後要重新選檔（瀏覽器的安全限制），每個檔案看到哪裡會記住。</p>
+    </div>
+
     <div class="view" id="v-channel" hidden>
       <div id="chHead"></div>
       <div class="list" id="chVideos"></div>
@@ -176,9 +218,10 @@
     </div>
   </section>
 
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
-<script src="browse.js?v=5"></script>
-<script src="series.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="app.js?v=6"></script>
+<script src="browse.js?v=6"></script>
+<script src="series.js?v=6"></script>
+<script src="local.js?v=6"></script>
 </body>
 </html>

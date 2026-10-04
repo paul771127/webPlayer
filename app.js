@@ -49,9 +49,10 @@ window.onYouTubeIframeAPIReady = () => {
         if (pending) { play(pending.id, pending.meta); return; }
         // 開啟頁面時：帶出上次的影片，停在上次的位置（手機需點一下才會出聲播放）
         const last = Resume.lastId();
-        if (last) { player.cueVideoById({ videoId: last, startSeconds: Resume.startFor(last) }); hooks.onPlay(last); }
+        if (last && !last.startsWith('local:')) { player.cueVideoById({ videoId: last, startSeconds: Resume.startFor(last) }); hooks.onPlay(last); }
       },
       onStateChange: e => {
+        if (mode !== 'yt') return;
         // 換影片後 YouTube 會把速度重設回 1×，這裡補回使用者設定
         if (e.data === YT.PlayerState.PLAYING && player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
         if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) Resume.save();
@@ -65,9 +66,74 @@ document.addEventListener('DOMContentLoaded', () => {
   const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
 });
 
+/* ========== 播放引擎：YouTube 與本機影片共用同一組操作 ========== */
+const video = $('local');
+let mode = 'yt', localKey = null, localUrl = null;
+const YTE = {
+  ok: () => ready,
+  id: () => { try { return player.getVideoData().video_id || null; } catch (e) { return null; } },
+  time: () => player.getCurrentTime() || 0,
+  dur: () => player.getDuration() || 0,
+  seek: t => player.seekTo(t, true),
+  playing: () => player.getPlayerState() === YT.PlayerState.PLAYING,
+  toggle: () => (YTE.playing() ? player.pauseVideo() : player.playVideo()),
+  vol: () => player.getVolume(),
+  setVol: v => { if (player.isMuted() && v > 0) player.unMute(); player.setVolume(v); },
+  rate: r => player.setPlaybackRate(r),
+  buffered: () => player.getVideoLoadedFraction() || 0
+};
+const LOC = {
+  ok: () => !!localKey,
+  id: () => localKey,
+  time: () => video.currentTime || 0,
+  dur: () => (isFinite(video.duration) ? video.duration : 0),
+  seek: t => { video.currentTime = t; },
+  playing: () => !video.paused && !video.ended,
+  toggle: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
+  vol: () => Math.round(video.volume * 100),
+  setVol: v => { video.muted = false; video.volume = v / 100; },
+  rate: r => { video.playbackRate = r; },
+  buffered: () => {
+    const d = LOC.dur(), b = video.buffered;
+    return d && b.length ? b.end(b.length - 1) / d : 0;
+  }
+};
+const E = () => (mode === 'local' ? LOC : YTE);
+function setMode(m) {
+  if (m === mode) return;
+  if (m === 'local' && ready) player.pauseVideo();
+  if (m === 'yt') video.pause();
+  mode = m; document.body.dataset.mode = m;
+}
+document.body.dataset.mode = 'yt';
+
+// 本機影片
+video.addEventListener('loadedmetadata', () => {
+  const s = Resume.startFor(localKey);
+  if (s) video.currentTime = s;
+  video.playbackRate = rate;
+});
+video.addEventListener('pause', () => Resume.save());
+video.addEventListener('ended', () => { Resume.save(); hooks.onEnded(); });
+video.addEventListener('error', () => {
+  if (mode === 'local' && localKey) msg('手機無法播放這個檔案的格式（常見於 MKV、AVI、WMV），請換 MP4 檔。');
+});
+function playLocal(file, key, meta) {
+  Resume.save();                       // 先存下前一部的進度
+  setMode('local');
+  msg('');
+  if (localUrl) URL.revokeObjectURL(localUrl);
+  localUrl = URL.createObjectURL(file);
+  localKey = key;
+  video.src = localUrl;
+  video.play().catch(() => msg('點一下影片開始播放。'));
+  hooks.onPlay(key, meta);
+}
+
 function play(id, meta) {
   if (!ready) { pending = { id, meta }; return; }
   Resume.save();                       // 先存下前一部的進度
+  setMode('yt');
   msg('');
   player.loadVideoById({ videoId: id, startSeconds: Resume.startFor(id) });
   hooks.onPlay(id, meta);
@@ -78,12 +144,12 @@ const Resume = (() => {
   const KEY = 'progress', MAX = 50;
   let on = store.get('resumeOn', true);
   const all = () => store.get(KEY, { last: null, items: {} });
-  const curId = () => { try { return player.getVideoData().video_id || null; } catch (e) { return null; } };
 
   function save() {
-    if (!on || !ready) return;
-    const id = curId(); if (!id) return;
-    const t = player.getCurrentTime(), dur = player.getDuration();
+    const e = E();
+    if (!on || !e.ok()) return;
+    const id = e.id(); if (!id) return;
+    const t = e.time(), dur = e.dur();
     const d = all();
     if (dur && t > dur - 10) delete d.items[id];           // 看完了就不再續播
     else if (t > 3) d.items[id] = { t: Math.floor(t), at: Date.now() };
@@ -96,6 +162,7 @@ const Resume = (() => {
     get on() { return on; },
     set(v) { on = v; store.set('resumeOn', v); if (v) save(); },
     startFor: id => (on && all().items[id]) ? all().items[id].t : 0,
+    progress: id => (all().items[id] || {}).t || 0,
     lastId: () => on ? all().last : null,
     save
   };
@@ -103,7 +170,7 @@ const Resume = (() => {
 
 $('resume').checked = Resume.on;
 $('resume').onchange = e => Resume.set(e.target.checked);
-setInterval(() => { if (ready && player.getPlayerState() === YT.PlayerState.PLAYING) Resume.save(); }, 3000);
+setInterval(() => { if (E().ok() && E().playing()) Resume.save(); }, 3000);
 window.addEventListener('pagehide', Resume.save);
 document.addEventListener('visibilitychange', () => { if (document.hidden) Resume.save(); });
 
@@ -111,24 +178,19 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) Resum
 // 連續快速滑動時合併成一次跳轉，減少 YouTube 重複緩衝
 let seekTarget = null, seekAt = 0;
 function seek(delta) {
-  if (!ready) return;
+  const e = E(); if (!e.ok()) return;
   const now = Date.now();
-  const base = (seekTarget !== null && now - seekAt < CFG.mergeMs) ? seekTarget : player.getCurrentTime();
-  const dur = player.getDuration() || Infinity;
+  const base = (seekTarget !== null && now - seekAt < CFG.mergeMs) ? seekTarget : e.time();
+  const dur = e.dur() || Infinity;
   seekTarget = Math.min(Math.max(base + delta, 0), dur - 0.5);
   seekAt = now;
-  player.seekTo(seekTarget, true);
+  e.seek(seekTarget);
 }
 function setVol(v) {
-  if (!ready) return;
-  v = Math.round(Math.min(Math.max(v, 0), 100));
-  if (player.isMuted() && v > 0) player.unMute();
-  player.setVolume(v);
+  if (!E().ok()) return;
+  E().setVol(Math.round(Math.min(Math.max(v, 0), 100)));
 }
-function togglePlay() {
-  if (!ready) return;
-  player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
-}
+function togglePlay() { if (E().ok()) E().toggle(); }
 
 /* ========== 控制列：秒數、速度 ========== */
 function renderStep() { $('stepVal').textContent = STEPS[stepIdx] + ' 秒'; store.set('step', STEPS[stepIdx]); }
@@ -139,7 +201,7 @@ renderStep();
 $('rate').value = String(rate);
 $('rate').onchange = e => {
   rate = parseFloat(e.target.value); store.set('rate', rate);
-  if (ready) player.setPlaybackRate(rate);
+  if (E().ok()) E().rate(rate);
 };
 
 /* ========== 進度條 + 全螢幕細進度線 ========== */
@@ -148,13 +210,14 @@ let dragging = false;
 function paintBar(t, dur) {
   const pct = dur ? (t / dur) * 100 : 0;
   bar.style.setProperty('--played', pct + '%');
-  const buf = ready ? (player.getVideoLoadedFraction() || 0) * 100 : 0;
+  const buf = E().ok() ? E().buffered() * 100 : 0;
   bar.style.setProperty('--buffered', Math.max(buf, pct) + '%');
   thin.style.width = pct + '%';
 }
 function tick() {
-  if (!ready || dragging) return;
-  const dur = player.getDuration() || 0, t = player.getCurrentTime() || 0;
+  const e = E();
+  if (!e.ok() || dragging) return;
+  const dur = e.dur(), t = e.time();
   if (+bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
   bar.value = t; $('tCur').textContent = fmt(t);
   paintBar(t, dur);
@@ -166,7 +229,7 @@ bar.addEventListener('input', () => {             // 拖曳中：只更新顯示
   paintBar(+bar.value, +bar.max);
 });
 bar.addEventListener('change', () => {            // 放開：跳到該位置
-  if (ready) { player.seekTo(+bar.value, true); seekTarget = null; }
+  if (E().ok()) { E().seek(+bar.value); seekTarget = null; }
   dragging = false;
 });
 
@@ -225,7 +288,7 @@ let g = null, lastTap = 0, tapTimer = null, holdTimer = null;
 
 pad.addEventListener('pointerdown', e => {
   pad.setPointerCapture(e.pointerId);
-  g = { x0: e.clientX, y0: e.clientY, axis: null, held: false, vol0: ready ? player.getVolume() : 100 };
+  g = { x0: e.clientX, y0: e.clientY, axis: null, held: false, vol0: E().ok() ? E().vol() : 100 };
   // 全螢幕時長按：退回視窗模式（備用方式）
   clearTimeout(holdTimer);
   holdTimer = setTimeout(() => { if (g && !g.axis && isFs()) { g.held = true; exitFs(); } }, CFG.holdMs);
@@ -257,15 +320,16 @@ document.addEventListener('keydown', e => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   const map = {
     ArrowRight: () => seek(STEPS[stepIdx]), ArrowLeft: () => seek(-STEPS[stepIdx]),
-    ArrowUp: () => setVol(player.getVolume() + 10), ArrowDown: () => setVol(player.getVolume() - 10),
+    ArrowUp: () => setVol(E().vol() + 10), ArrowDown: () => setVol(E().vol() - 10),
     ' ': togglePlay, f: toggleFs
   };
-  if (map[e.key] && ready) { e.preventDefault(); map[e.key](); }
+  if (map[e.key] && E().ok()) { e.preventDefault(); map[e.key](); }
 });
 
 /* ========== 對外介面 ========== */
 window.App = {
-  play, parseId, hooks, store, msg, fmt,
+  play, playLocal, parseId, hooks, store, msg, fmt, Resume,
+  get mode() { return mode; },
   get player() { return player; },
   get ready() { return ready; }
 };

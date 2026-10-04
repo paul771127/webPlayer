@@ -318,5 +318,5 @@ window.Browse = {
 Subs.render();
 $('results').innerHTML = statusHTML(API.key ? '在上方輸入關鍵字，按「搜尋」。' : 'NOKEY');
 $('chHead').innerHTML = statusHTML('點「正在播放」的頻道名稱，或從「訂閱」選一個頻道。');
-Tabs.show(API.key ? store.get('tab', 'search') : 'settings');
+Tabs.show(store.get('tab', API.key ? 'search' : 'local'));
 })();
