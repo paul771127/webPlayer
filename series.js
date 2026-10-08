@@ -151,18 +151,91 @@ const offSet = id => new Set(store.get('srOff', {})[id] || []);
 function setOff(id, set) { const m = store.get('srOff', {}); m[id] = [...set]; store.set('srOff', m); }
 const checkedIds = c => { const off = offSet(c.pl.id); return epsOf(c).filter(v => !off.has(v.id)).map(v => v.id); };
 
+/* ========== 免 API：用 YouTube 播放器本身讀出清單裡的影片 ========== */
+// 另開一個隱藏的小播放器載入清單，取得影片 ID（不影響正在播的影片）
+function keylessIds(listId) {
+  return new Promise((resolve, reject) => {
+    if (!window.YT || !YT.Player) { reject(new Error('播放器還在載入，請稍等幾秒再試一次。')); return; }
+    const box = document.createElement('div');
+    box.style.cssText = 'position:absolute;left:-9999px;top:0;width:2px;height:2px;overflow:hidden';
+    const holder = document.createElement('div');
+    box.appendChild(holder); document.body.appendChild(box);
+    let tries = 0, p;
+    const done = (ids, err) => {
+      clearInterval(timer);
+      try { p.destroy(); } catch (e) {}
+      box.remove();
+      ids && ids.length ? resolve(ids) : reject(err || new Error('讀不到這個播放清單，可能是私人清單或已被刪除。'));
+    };
+    const timer = setInterval(() => {
+      tries++;
+      try { const ids = p && p.getPlaylist && p.getPlaylist(); if (ids && ids.length) done(ids); } catch (e) {}
+      if (tries > 40) done(null);                     // 約 12 秒還讀不到就放棄
+    }, 300);
+    p = new YT.Player(holder, {
+      width: 2, height: 2,
+      playerVars: { listType: 'playlist', list: listId, autoplay: 0, controls: 0, playsinline: 1 },
+      events: {
+        onReady: e => { try { e.target.cuePlaylist({ listType: 'playlist', list: listId }); } catch (err) {} },
+        onError: () => done(null)
+      }
+    });
+  });
+}
+// 標題用公開的 oEmbed 補上（不需要金鑰）；讀不到就顯示「第 N 部」
+async function oembed(url) {
+  const u = encodeURIComponent(url);
+  for (const src of ['https://www.youtube.com/oembed?format=json&url=' + u, 'https://noembed.com/embed?url=' + u]) {
+    try { const r = await fetch(src); if (r.ok) { const j = await r.json(); if (j.title) return j; } } catch (e) {}
+  }
+  return null;
+}
+async function fillTitles(c) {
+  let i = 0, dirty = false;
+  const work = async () => {
+    while (i < c.eps.length) {
+      const v = c.eps[i++];
+      const j = await oembed('https://www.youtube.com/watch?v=' + v.id);
+      if (j) { v.title = j.title; v.channelTitle = j.author_name || ''; dirty = true; }
+    }
+  };
+  const tick = setInterval(() => { if (dirty && cur === c) { dirty = false; renderSeries(); Browse.refreshNow(); } }, 800);
+  await Promise.all([work(), work(), work(), work()]);
+  clearInterval(tick);
+  if (cur === c) { renderSeries(); Browse.refreshNow(); }
+}
+async function keylessOpen(id) {
+  const ids = await keylessIds(id);
+  const eps = ids.map((vid, k) => ({
+    id: vid, title: `第 ${k + 1} 部`, channelTitle: '', channelId: '', dur: 0, views: null,
+    thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, published: null, live: 'none'
+  }));
+  const pl = { id, title: id.startsWith('RD') ? 'YouTube 合輯' : '播放清單', channelId: '', channelTitle: '', thumb: eps[0].thumb, count: eps.length, keyless: true };
+  oembed('https://www.youtube.com/playlist?list=' + id).then(j => {
+    if (j) { pl.title = j.title; pl.channelTitle = j.author_name || ''; if (cur && cur.pl === pl) renderSeries(); }
+  });
+  return { pl, eps };
+}
+
 async function openSeries(id, opt = {}) {
   if (opt.junk !== undefined && !junkDefault.has(id)) junkDefault.set(id, opt.junk);
   Tabs.show('series-detail', 'series');
   $('srHead').innerHTML = statusHTML('載入清單中…');
   $('srEps').innerHTML = '';
   try {
-    let pl = plCache.get(id);
-    if (!pl) { pl = (await playlists([id]))[0]; if (!pl) throw new Error('找不到這個播放清單（YouTube 自動產生的「合輯／Mix」無法讀取）。'); plCache.set(id, pl); }
-    const eps = (queue && queue.pl.id === id) ? queue.raw : await loadEpisodes(id);
+    let pl = plCache.get(id), eps;
+    if (queue && queue.pl.id === id) { pl = queue.pl; eps = queue.raw; }
+    else if (!API.key || id.startsWith('RD')) {     // 沒有金鑰，或是 API 讀不到的合輯（Mix）
+      ({ pl, eps } = await keylessOpen(id));
+      plCache.set(id, pl);
+    } else {
+      if (!pl) { pl = (await playlists([id]))[0]; if (!pl) throw new Error('找不到這個播放清單，可能是私人清單或已被刪除。'); plCache.set(id, pl); }
+      eps = await loadEpisodes(id);
+    }
     eps.forEach(v => Browse.cache.set(v.id, v));
     cur = { pl, eps };
     renderSeries();
+    if (pl.keyless && !eps.titled) { eps.titled = true; fillTitles(cur); }
     if (opt.startVideo && eps.some(v => v.id === opt.startVideo)) playId(cur, opt.startVideo);
     else if (opt.autoplay) playStart();
   } catch (e) {
@@ -183,7 +256,7 @@ function renderSeries() {
       <span class="thumb"><img src="${esc(pl.thumb)}" alt=""></span>
       <div class="info">
         <div class="title name2">${esc(pl.title)}</div>
-        <button type="button" class="chLink" data-ch="${esc(pl.channelId)}">${esc(pl.channelTitle)}</button>
+        ${pl.channelId ? `<button type="button" class="chLink" data-ch="${esc(pl.channelId)}">${esc(pl.channelTitle)}</button>` : `<div class="meta">${esc(pl.channelTitle)}</div>`}
         <div class="meta">${eps.length} 部${total ? ' · 已選的共 ' + fmt(total) : ''}</div>
       </div>
     </div>
@@ -204,7 +277,7 @@ function renderSeries() {
       <input type="checkbox" data-sr-chk="${esc(v.id)}" ${off.has(v.id) ? '' : 'checked'} aria-label="播放這部">
       <button type="button" class="epBtn" data-ep="${esc(v.id)}">
         <span class="no">${i + 1}</span><span class="title">${esc(v.title)}</span>
-        <span class="d">${v.live === 'live' ? '直播' : fmt(v.dur)}</span>
+        <span class="d">${v.live === 'live' ? '直播' : v.dur ? fmt(v.dur) : ''}</span>
       </button>
     </div>`).join('') : statusHTML('這個清單沒有可播放的影片。');
   $('srJunk').onchange = e => {
