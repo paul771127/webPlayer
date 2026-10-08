@@ -117,68 +117,96 @@ function view() {
 /* ========== 畫面 ========== */
 const size = b => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(b >= 1e8 ? 0 : 1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const day = t => { const d = new Date(t); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
-let nowKey = null, queue = [];     // queue：播放時當下清單的順序，用來接下一個
+let nowKey = null, q = null;       // q：本機的播放佇列（依勾選、排序、播放模式）
+const offKeys = new Set(store.get('lcOff', []));   // 沒勾選、不要播的檔案
+const saveOff = () => store.set('lcOff', [...offKeys].slice(-500));
+const byKey = k => files.find(f => f.key === k);
+const checkedKeys = () => view().filter(f => !offKeys.has(f.key)).map(f => f.key);
 
 function item(f) {
   const p = f.dur ? Math.min(100, Resume.progress(f.key) / f.dur * 100) : 0;
-  return `<button type="button" class="vid${f.key === nowKey ? ' playing' : ''}" data-lc="${f.idx}">
+  const off = offKeys.has(f.key);
+  return `<div class="lcRow${off ? ' off' : ''}">
+  <input type="checkbox" data-lc-chk="${f.idx}" ${off ? '' : 'checked'} aria-label="播放這個檔案">
+  <button type="button" class="vid${f.key === nowKey ? ' playing' : ''}" data-lc="${f.idx}">
     <span class="thumb">${f.thumb ? `<img src="${f.thumb}" alt="">` : `<span class="ph">${esc(f.ext.toUpperCase() || '影片')}</span>`}
       ${f.dur ? `<span class="dur">${fmt(f.dur)}</span>` : ''}
       ${p > 1 ? `<span class="pbar"><i style="width:${p.toFixed(1)}%"></i></span>` : ''}</span>
     <span class="info"><span class="title">${esc(f.name)}</span>
       <span class="meta">${f.folder ? esc(f.folder) + '<br>' : ''}${size(f.size)} · ${day(f.mod)}${f.bad ? ' · <span class="warn">可能無法播放</span>' : ''}</span></span>
-  </button>`;
+  </button></div>`;
 }
 function render() {
   const list = view();
   $('lcClear').hidden = !files.length;
+  $('lcSel').hidden = !files.length;
   if (!files.length) {
     $('lcInfo').textContent = '';
     $('lcList').innerHTML = statusHTML('選擇手機裡的影片開始播放。可以一次選多個，或選整個資料夾。');
     return;
   }
   const total = list.reduce((s, f) => s + (f.dur || 0), 0);
+  const sel = list.filter(f => !offKeys.has(f.key)).length;
   $('lcInfo').textContent = `共 ${files.length} 個影片` +
     (list.length !== files.length ? `，符合條件 ${list.length} 個` : '') + (total ? ` · 總長 ${fmt(total)}` : '');
+  $('lcSelCount').textContent = `已勾選 ${sel}／${list.length}`;
   $('lcList').innerHTML = list.length ? list.map(item).join('') : statusHTML('沒有符合篩選條件的影片。');
 }
 let raf = 0;
 function renderSoon() { clearTimeout(raf); raf = setTimeout(render, 150); }
 
 /* ========== 播放 ========== */
-function playFile(f) {
-  queue = view().map(x => x.idx);
-  if (!queue.includes(f.idx)) queue = [f.idx];
+function playKey(k) {
+  const f = byKey(k); if (!f) return;
   App.playLocal(f.file, f.key, { id: f.key, title: f.name, channelTitle: '本機影片 · ' + size(f.size) });
 }
+function playFile(f) {
+  const keys = checkedKeys();
+  if (!keys.includes(f.key)) keys.unshift(f.key);      // 點了沒勾選的檔案：照樣播
+  q = new App.PlayQueue(keys, f.key);
+  playKey(f.key);
+}
 function step(d) {
-  const i = queue.findIndex(x => files[x].key === nowKey);
-  const n = queue[i + d];
-  if (i >= 0 && n !== undefined) playFile(files[n]);
+  if (!q) return;
+  const n = d > 0 ? q.next(false) : q.prev();
+  if (n) playKey(n);
+}
+function syncQueue() {
+  if (!q) return;
+  const keys = checkedKeys();
+  if (nowKey && !keys.includes(nowKey)) keys.unshift(nowKey);
+  q.setKeys(keys);
+  Browse.refreshNow();
 }
 
 // 正在播放：顯示第幾個 + 上一個／下一個
 const prevExtra = Browse.nowExtra;
 Browse.nowExtra = id => {
   if (!id || !id.startsWith('local:')) return prevExtra(id);
-  const i = queue.findIndex(x => files[x].key === id);
-  if (i < 0 || queue.length < 2) return '';
-  return `<div class="epNav"><span class="meta">本機清單 · 第 ${i + 1}／${queue.length} 個</span>
+  if (!q || q.order.length < 2 && App.PlayMode.repeat === 'off') return '';
+  return `<div class="epNav"><span class="meta">本機清單 · 第 ${q.pos + 1}／${q.order.length} 個</span>
     <span class="srBtns">
-      <button type="button" class="btn ghost small" data-lc-step="-1" ${i === 0 ? 'disabled' : ''}>上一個</button>
-      <button type="button" class="btn ghost small" data-lc-step="1" ${i >= queue.length - 1 ? 'disabled' : ''}>下一個</button>
+      <button type="button" class="btn ghost small" data-lc-step="-1" ${q.hasPrev() ? '' : 'disabled'}>上一個</button>
+      <button type="button" class="btn ghost small" data-lc-step="1" ${q.hasNext() ? '' : 'disabled'}>下一個</button>
     </span></div>`;
 };
 const prevPlay = App.hooks.onPlay;
 App.hooks.onPlay = (id, meta) => {
   nowKey = id;
+  if (q && !q.at(id)) q = null;
   prevPlay(id, meta);
   document.querySelectorAll('[data-lc]').forEach(b => b.classList.toggle('playing', files[+b.dataset.lc].key === id));
 };
 const prevEnded = App.hooks.onEnded;
-App.hooks.onEnded = () => {                  // 本機影片播完：自動播清單的下一個
-  if (App.mode === 'local') { step(1); renderSoon(); } else prevEnded();
+App.hooks.onEnded = () => {                  // 本機影片播完：依播放模式接下一個
+  if (App.mode !== 'local') return prevEnded();
+  if (!q) return false;
+  const n = q.next(true);
+  if (n) playKey(n);
+  renderSoon();
+  return true;
 };
+App.onModeChange(() => { if (q) q.rebuild(q.cur); Browse.refreshNow(); });
 
 /* ========== 選檔 ========== */
 const pickFiles = $('pickFiles'), pickDir = $('pickDir');
@@ -186,7 +214,14 @@ $('btnFiles').onclick = () => pickFiles.click();
 $('btnDir').onclick = () => pickDir.click();
 if (/iPhone|iPad|iPod/.test(navigator.userAgent)) $('btnDir').hidden = true;   // iPhone 不支援選資料夾
 [pickFiles, pickDir].forEach(inp => inp.addEventListener('change', () => { add([...inp.files]); inp.value = ''; }));
-$('lcClear').onclick = () => { files.length = 0; queue = []; render(); };
+$('lcClear').onclick = () => { files.length = 0; q = null; render(); };
+$('lcAll').onclick = () => { view().forEach(f => offKeys.delete(f.key)); saveOff(); syncQueue(); render(); };
+$('lcNone').onclick = () => { view().forEach(f => offKeys.add(f.key)); saveOff(); syncQueue(); render(); };
+$('lcPlay').onclick = () => {
+  const keys = checkedKeys(); if (!keys.length) return;
+  const k = App.PlayMode.shuffle ? keys[Math.floor(Math.random() * keys.length)] : keys[0];
+  playFile(byKey(k));
+};
 
 // 桌機：可以直接把影片拖進來
 const panel = $('panel');
@@ -197,9 +232,14 @@ panel.addEventListener('drop', e => {
 });
 
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-lc],[data-lc-step]');
+  const t = e.target.closest('[data-lc],[data-lc-step],[data-lc-chk]');
   if (!t || t.disabled) return;
-  if (t.dataset.lcStep) step(+t.dataset.lcStep);
+  if (t.dataset.lcChk) {
+    const f = files[+t.dataset.lcChk];
+    t.checked ? offKeys.delete(f.key) : offKeys.add(f.key);
+    saveOff(); syncQueue(); render();
+  }
+  else if (t.dataset.lcStep) step(+t.dataset.lcStep);
   else playFile(files[+t.dataset.lc]);
 });
 

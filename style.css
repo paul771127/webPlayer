@@ -243,3 +243,24 @@ body[data-mode="local"] #player { visibility: hidden; }
 .pbar i { display: block; height: 100%; background: var(--accent); }
 .warn { color: var(--warn); }
 #tabs button { font-size: 13px; padding-inline: 2px; }
+
+/* ---------- 播放模式與勾選 ---------- */
+.mode {
+  height: 36px; padding: 0 12px; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+}
+.mode.on { color: var(--fg); border-color: var(--accent); background: rgba(79, 140, 255, .15); }
+#v-search .filters.four select:first-child { grid-column: 1 / -1; }
+#v-search .filters.four { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.selBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); cursor: pointer; flex: none; }
+.ep { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 0; }
+.epBtn {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 10px 0; background: none; border: 0; text-align: left; cursor: pointer; color: var(--fg);
+}
+.ep .no { color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.ep.playing .no, .ep.playing .title { color: var(--accent); }
+.ep.off .epBtn, .lcRow.off .vid { opacity: .45; }
+.lcRow { display: flex; align-items: center; gap: 10px; }
+.lcRow .vid { flex: 1; min-width: 0; }

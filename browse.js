@@ -228,7 +228,7 @@ App.hooks.onPlay = async (id, meta) => {
 /* ========== 搜尋 ========== */
 const searchList = makeList($('results'), $('moreResults'));
 let lastQ = '';
-const filters = ['fWithin', 'fDur', 'fOrder'];
+const filters = ['fType', 'fWithin', 'fDur', 'fOrder'];
 const saved = store.get('filters', {});
 filters.forEach(f => {
   if (saved[f]) $(f).value = saved[f];
@@ -237,9 +237,16 @@ filters.forEach(f => {
     if (lastQ) doSearch(lastQ);
   };
 });
+const syncFilters = () => { $('fDur').disabled = $('fType').value === 'playlist'; };
+$('fType').addEventListener('change', syncFilters);
+syncFilters();
 function doSearch(q) {
   lastQ = q;
   Tabs.show('search');
+  if ($('fType').value === 'playlist') {
+    searchList.start(page => Series.search({ q, within: $('fWithin').value, order: $('fOrder').value, page }));
+    return;
+  }
   searchList.start(page => API.search({
     q, within: $('fWithin').value, duration: $('fDur').value, order: $('fOrder').value, page
   }));
@@ -251,6 +258,9 @@ $('bar').addEventListener('submit', e => {
   const s = $('q').value.trim();
   if (!s) return;
   $('q').blur();
+  // 播放清單／專輯網址（含 list=）→ 開啟整個清單；若也帶了影片就從那支開始播
+  const list = s.match(/[?&]list=([\w-]+)/);
+  if (list && /youtu/i.test(s)) { Series.open(list[1], { startVideo: App.parseId(s) }); return; }
   const id = App.parseId(s);
   if (id) { App.play(id); return; }
   const ch = s.match(/youtube\.com\/channel\/(UC[\w-]{22})/) || s.match(/youtube\.com\/(@[\w.\-]+)/);

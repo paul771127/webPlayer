@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d0f12">
 <title>webPlayer</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <!-- 播放區 -->
@@ -53,6 +53,10 @@
           <option value="2">2×</option>
         </select>
       </div>
+      <div class="group">
+        <button type="button" class="mode" id="pmShuffle">依序播放</button>
+        <button type="button" class="mode" id="pmRepeat">不循環</button>
+      </div>
       <button type="button" class="btn" id="fsBtn">全螢幕</button>
     </div>
   </div>
@@ -71,7 +75,11 @@
     </nav>
 
     <div class="view" id="v-search">
-      <div class="filters">
+      <div class="filters four">
+        <select id="fType" aria-label="類型">
+          <option value="video">影片</option>
+          <option value="playlist">播放清單／專輯</option>
+        </select>
         <select id="fWithin" aria-label="上傳時間">
           <option value="0">不限時間</option>
           <option value="1">今天</option>
@@ -175,6 +183,14 @@
         </select>
       </div>
       <div class="meta" id="lcInfo"></div>
+      <div class="selBar" id="lcSel" hidden>
+        <span class="meta" id="lcSelCount"></span>
+        <span class="srBtns">
+          <button type="button" class="btn small" id="lcPlay">播放已勾選</button>
+          <button type="button" class="btn ghost small" id="lcAll">全選</button>
+          <button type="button" class="btn ghost small" id="lcNone">全不選</button>
+        </span>
+      </div>
       <div class="list" id="lcList"></div>
       <p class="meta">重新整理頁面後要重新選檔（瀏覽器的安全限制），每個檔案看到哪裡會記住。</p>
     </div>
@@ -218,10 +234,10 @@
     </div>
   </section>
 
-<script src="config.js?v=6"></script>
-<script src="app.js?v=6"></script>
-<script src="browse.js?v=6"></script>
-<script src="series.js?v=6"></script>
-<script src="local.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
+<script src="browse.js?v=7"></script>
+<script src="series.js?v=7"></script>
+<script src="local.js?v=7"></script>
 </body>
 </html>

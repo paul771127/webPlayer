@@ -38,7 +38,7 @@ function parseId(input) {
 
 /* ========== YouTube 播放器 ========== */
 let player = null, ready = false, pending = null;
-const hooks = { onPlay: () => {}, onEnded: () => {} };   // browse.js / series.js 會接上
+const hooks = { onPlay: () => {}, onEnded: () => false };  // browse.js / series.js / local.js 會接上；onEnded 回傳 true 表示已處理
 
 window.onYouTubeIframeAPIReady = () => {
   player = new YT.Player('player', {
@@ -56,7 +56,7 @@ window.onYouTubeIframeAPIReady = () => {
         // 換影片後 YouTube 會把速度重設回 1×，這裡補回使用者設定
         if (e.data === YT.PlayerState.PLAYING && player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
         if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) Resume.save();
-        if (e.data === YT.PlayerState.ENDED) hooks.onEnded();
+        if (e.data === YT.PlayerState.ENDED) ended();
       },
       onError: e => msg('無法播放（錯誤碼 ' + e.data + '）：影片可能不允許嵌入。')
     }
@@ -77,6 +77,7 @@ const YTE = {
   seek: t => player.seekTo(t, true),
   playing: () => player.getPlayerState() === YT.PlayerState.PLAYING,
   toggle: () => (YTE.playing() ? player.pauseVideo() : player.playVideo()),
+  play: () => player.playVideo(),
   vol: () => player.getVolume(),
   setVol: v => { if (player.isMuted() && v > 0) player.unMute(); player.setVolume(v); },
   rate: r => player.setPlaybackRate(r),
@@ -90,6 +91,7 @@ const LOC = {
   seek: t => { video.currentTime = t; },
   playing: () => !video.paused && !video.ended,
   toggle: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
+  play: () => video.play().catch(() => {}),
   vol: () => Math.round(video.volume * 100),
   setVol: v => { video.muted = false; video.volume = v / 100; },
   rate: r => { video.playbackRate = r; },
@@ -114,10 +116,72 @@ video.addEventListener('loadedmetadata', () => {
   video.playbackRate = rate;
 });
 video.addEventListener('pause', () => Resume.save());
-video.addEventListener('ended', () => { Resume.save(); hooks.onEnded(); });
+video.addEventListener('ended', () => { Resume.save(); ended(); });
 video.addEventListener('error', () => {
   if (mode === 'local' && localKey) msg('手機無法播放這個檔案的格式（常見於 MKV、AVI、WMV），請換 MP4 檔。');
 });
+/* ========== 播放模式：依序／隨機 × 不循環／全部循環／單曲循環 ========== */
+const PlayMode = { shuffle: store.get('pmShuffle', false), repeat: store.get('pmRepeat', 'off') };
+const modeListeners = [];
+const REPEAT_TEXT = { off: '不循環', all: '全部循環', one: '單曲循環' };
+function renderMode() {
+  $('pmShuffle').textContent = PlayMode.shuffle ? '隨機播放' : '依序播放';
+  $('pmShuffle').classList.toggle('on', PlayMode.shuffle);
+  $('pmRepeat').textContent = REPEAT_TEXT[PlayMode.repeat];
+  $('pmRepeat').classList.toggle('on', PlayMode.repeat !== 'off');
+}
+function setPlayMode(k, v) {
+  PlayMode[k] = v;
+  store.set(k === 'shuffle' ? 'pmShuffle' : 'pmRepeat', v);
+  renderMode();
+  modeListeners.forEach(f => f());
+}
+$('pmShuffle').onclick = () => setPlayMode('shuffle', !PlayMode.shuffle);
+$('pmRepeat').onclick = () => setPlayMode('repeat', { off: 'all', all: 'one', one: 'off' }[PlayMode.repeat]);
+renderMode();
+
+// 播完：先交給清單處理（劇集、播放清單、本機），沒有清單時單支影片也能循環
+function ended() {
+  if (hooks.onEnded()) return;
+  if (PlayMode.repeat !== 'off') { E().seek(0); E().play(); }
+}
+
+/* 播放佇列：清單模組共用。keys 是已勾選、依顯示順序排列的項目 */
+class PlayQueue {
+  constructor(keys, cur) { this.keys = keys.slice(); this.rebuild(cur); }
+  rebuild(cur) {
+    this.cur = cur;
+    if (PlayMode.shuffle) {
+      const rest = this.keys.filter(k => k !== cur);
+      for (let i = rest.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]];
+      }
+      this.order = this.keys.includes(cur) ? [cur, ...rest] : rest;
+    } else this.order = this.keys.slice();
+    this.pos = Math.max(0, this.order.indexOf(cur));
+  }
+  setKeys(keys) { this.keys = keys.slice(); this.rebuild(this.cur); }
+  at(key) {                                  // 播到某一項時更新位置；不在清單內回傳 false
+    const i = this.order.indexOf(key);
+    if (i < 0) return false;
+    this.pos = i; this.cur = key; return true;
+  }
+  next(auto) {
+    if (!this.order.length) return null;
+    if (auto && PlayMode.repeat === 'one') return this.cur;
+    if (this.pos < this.order.length - 1) return this.order[this.pos + 1];
+    if (PlayMode.repeat !== 'all') return null;
+    if (PlayMode.shuffle) this.rebuild(null);  // 全部循環 + 隨機：每輪重新洗牌
+    return this.order[0];
+  }
+  prev() {
+    if (this.pos > 0) return this.order[this.pos - 1];
+    return PlayMode.repeat === 'all' ? this.order[this.order.length - 1] : null;
+  }
+  hasNext() { return this.pos < this.order.length - 1 || PlayMode.repeat === 'all'; }
+  hasPrev() { return this.pos > 0 || PlayMode.repeat === 'all'; }
+}
+
 function playLocal(file, key, meta) {
   Resume.save();                       // 先存下前一部的進度
   setMode('local');
@@ -328,7 +392,8 @@ document.addEventListener('keydown', e => {
 
 /* ========== 對外介面 ========== */
 window.App = {
-  play, playLocal, parseId, hooks, store, msg, fmt, Resume,
+  play, playLocal, parseId, hooks, store, msg, fmt, Resume, PlayMode, PlayQueue,
+  onModeChange: f => modeListeners.push(f),
   get mode() { return mode; },
   get player() { return player; },
   get ready() { return ready; }
