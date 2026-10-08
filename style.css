@@ -264,3 +264,11 @@ input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var
 .ep.off .epBtn, .lcRow.off .vid { opacity: .45; }
 .lcRow { display: flex; align-items: center; gap: 10px; }
 .lcRow .vid { flex: 1; min-width: 0; }
+
+/* ---------- 背景播放（本機只播聲音） ---------- */
+body[data-mode="local"][data-bg="on"] #local { display: none; }
+body[data-mode="local"][data-bg="on"] #stage::after {
+  content: "背景播放中（只播聲音）"; position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--muted); font-size: 13px; letter-spacing: .06em; pointer-events: none;
+}
+#ctrl .group:has(#pmShuffle) { flex-wrap: wrap; }

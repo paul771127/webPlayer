@@ -67,7 +67,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ========== 播放引擎：YouTube 與本機影片共用同一組操作 ========== */
-const video = $('local');
+const video = $('local'), audio = $('localAudio');
+let media = video;                       // 本機播放用的元素：一般是 <video>，背景播放時改用 <audio>
+let pendingSeek = 0;
 let mode = 'yt', localKey = null, localUrl = null;
 const YTE = {
   ok: () => ready,
@@ -86,17 +88,17 @@ const YTE = {
 const LOC = {
   ok: () => !!localKey,
   id: () => localKey,
-  time: () => video.currentTime || 0,
-  dur: () => (isFinite(video.duration) ? video.duration : 0),
-  seek: t => { video.currentTime = t; },
-  playing: () => !video.paused && !video.ended,
-  toggle: () => (video.paused ? video.play().catch(() => {}) : video.pause()),
-  play: () => video.play().catch(() => {}),
-  vol: () => Math.round(video.volume * 100),
-  setVol: v => { video.muted = false; video.volume = v / 100; },
-  rate: r => { video.playbackRate = r; },
+  time: () => media.currentTime || 0,
+  dur: () => (isFinite(media.duration) ? media.duration : 0),
+  seek: t => { media.currentTime = t; },
+  playing: () => !media.paused && !media.ended,
+  toggle: () => (media.paused ? media.play().catch(() => {}) : media.pause()),
+  play: () => media.play().catch(() => {}),
+  vol: () => Math.round(media.volume * 100),
+  setVol: v => { media.muted = false; media.volume = v / 100; },
+  rate: r => { media.playbackRate = r; },
   buffered: () => {
-    const d = LOC.dur(), b = video.buffered;
+    const d = LOC.dur(), b = media.buffered;
     return d && b.length ? b.end(b.length - 1) / d : 0;
   }
 };
@@ -104,22 +106,49 @@ const E = () => (mode === 'local' ? LOC : YTE);
 function setMode(m) {
   if (m === mode) return;
   if (m === 'local' && ready) player.pauseVideo();
-  if (m === 'yt') video.pause();
+  if (m === 'yt') { video.pause(); audio.pause(); }
   mode = m; document.body.dataset.mode = m;
 }
 document.body.dataset.mode = 'yt';
 
 // 本機影片
-video.addEventListener('loadedmetadata', () => {
-  const s = Resume.startFor(localKey);
-  if (s) video.currentTime = s;
-  video.playbackRate = rate;
+[video, audio].forEach(el => {
+  el.addEventListener('loadedmetadata', () => {
+    if (el !== media) return;
+    if (pendingSeek) el.currentTime = pendingSeek;
+    pendingSeek = 0;
+    el.playbackRate = rate;
+  });
+  el.addEventListener('pause', () => { if (el === media) Resume.save(); });
+  el.addEventListener('ended', () => { if (el === media) { Resume.save(); ended(); } });
+  el.addEventListener('error', () => {
+    if (el === media && mode === 'local' && localKey) msg('手機無法播放這個檔案的格式（常見於 MKV、AVI、WMV），請換 MP4 檔。');
+  });
 });
-video.addEventListener('pause', () => Resume.save());
-video.addEventListener('ended', () => { Resume.save(); ended(); });
-video.addEventListener('error', () => {
-  if (mode === 'local' && localKey) msg('手機無法播放這個檔案的格式（常見於 MKV、AVI、WMV），請換 MP4 檔。');
-});
+
+/* ========== 背景播放（本機影片）：改用 <audio> 只播聲音，關螢幕也會繼續 ========== */
+let bgOn = store.get('bgPlay', false);
+function renderBg() {
+  $('bgBtn').classList.toggle('on', bgOn);
+  $('bgBtn').textContent = bgOn ? '背景播放：開' : '背景播放：關';
+  document.body.dataset.bg = bgOn ? 'on' : 'off';
+}
+$('bgBtn').onclick = () => {
+  bgOn = !bgOn; store.set('bgPlay', bgOn); renderBg();
+  const next = bgOn ? audio : video;
+  if (next === media) return;
+  const was = media, t = was.currentTime, playing = !was.paused;
+  media = next;
+  if (localUrl) {                           // 正在播本機影片：無縫換到另一個元素
+    pendingSeek = t;
+    was.pause();
+    media.src = localUrl;
+    if (playing) media.play().catch(() => {});
+  }
+  msg(bgOn ? '背景播放：本機影片只播聲音，可以關螢幕或切到其他 App。' : '');
+};
+renderBg();
+media = bgOn ? audio : video;
 /* ========== 播放模式：依序／隨機 × 不循環／全部循環／單曲循環 ========== */
 const PlayMode = { shuffle: store.get('pmShuffle', false), repeat: store.get('pmRepeat', 'off') };
 const modeListeners = [];
@@ -189,9 +218,13 @@ function playLocal(file, key, meta) {
   if (localUrl) URL.revokeObjectURL(localUrl);
   localUrl = URL.createObjectURL(file);
   localKey = key;
-  video.src = localUrl;
-  video.play().catch(() => msg('點一下影片開始播放。'));
+  pendingSeek = Resume.startFor(key);
+  media.src = localUrl;
+  media.play().catch(() => msg('點一下影片開始播放。'));
   hooks.onPlay(key, meta);
+  if ('mediaSession' in navigator && window.MediaMetadata) {   // 鎖定畫面顯示的標題
+    navigator.mediaSession.metadata = new MediaMetadata({ title: (meta && meta.title) || '本機影片', artist: 'webPlayer' });
+  }
 }
 
 function play(id, meta) {
@@ -389,6 +422,27 @@ document.addEventListener('keydown', e => {
   };
   if (map[e.key] && E().ok()) { e.preventDefault(); map[e.key](); }
 });
+
+/* ========== 鎖定畫面／耳機的控制鍵（本機影片） ========== */
+function clickStep(d) {
+  const b = document.querySelector(`#now [data-ep-step="${d}"], #now [data-lc-step="${d}"]`);
+  if (b && !b.disabled) b.click();
+}
+if ('mediaSession' in navigator) {
+  const ms = navigator.mediaSession;
+  const on = (a, f) => { try { ms.setActionHandler(a, f); } catch (e) {} };
+  on('play', () => E().play());
+  on('pause', () => { if (E().playing()) E().toggle(); });
+  on('seekbackward', () => seek(-STEPS[stepIdx]));
+  on('seekforward', () => seek(STEPS[stepIdx]));
+  on('seekto', d => { if (E().ok()) E().seek(d.seekTime); });
+  on('previoustrack', () => clickStep(-1));
+  on('nexttrack', () => clickStep(1));
+  setInterval(() => {
+    if (mode !== 'local' || !LOC.ok() || !LOC.dur()) return;
+    try { ms.setPositionState({ duration: LOC.dur(), position: Math.min(LOC.time(), LOC.dur()), playbackRate: rate }); } catch (e) {}
+  }, 1000);
+}
 
 /* ========== 對外介面 ========== */
 window.App = {

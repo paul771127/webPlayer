@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d0f12">
 <title>webPlayer</title>
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <!-- 播放區 -->
@@ -22,6 +22,7 @@
     <div id="stage">
       <div id="player"></div>
       <video id="local" playsinline preload="metadata"></video>
+      <audio id="localAudio" preload="metadata"></audio>
       <div id="touch"></div>
       <div id="thin"><i></i></div>
     </div>
@@ -56,6 +57,7 @@
       <div class="group">
         <button type="button" class="mode" id="pmShuffle">依序播放</button>
         <button type="button" class="mode" id="pmRepeat">不循環</button>
+        <button type="button" class="mode" id="bgBtn">背景播放：關</button>
       </div>
       <button type="button" class="btn" id="fsBtn">全螢幕</button>
     </div>
@@ -234,10 +236,10 @@
     </div>
   </section>
 
-<script src="config.js?v=8"></script>
-<script src="app.js?v=8"></script>
-<script src="browse.js?v=8"></script>
-<script src="series.js?v=8"></script>
-<script src="local.js?v=8"></script>
+<script src="config.js?v=9"></script>
+<script src="app.js?v=9"></script>
+<script src="browse.js?v=9"></script>
+<script src="series.js?v=9"></script>
+<script src="local.js?v=9"></script>
 </body>
 </html>
