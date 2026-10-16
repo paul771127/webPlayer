@@ -17,6 +17,8 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font);
   display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: none;
+  /* 整頁固定在看得到的畫面上：iPhone 不會把整頁拖走再彈回，滑動只交給清單 */
+  position: fixed; top: 0; left: 0; right: 0; height: var(--appH, 100%);
 }
 button, select, input { font: inherit; color: var(--fg); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -101,7 +103,7 @@ select, .input {
 
 /* ---------- 瀏覽面板 ---------- */
 #panel {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
   -webkit-overflow-scrolling: touch; padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 #now { padding: 12px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
@@ -279,3 +281,5 @@ body.compact #bar, body.compact #msg { display: none; }
 body.compact #ctrl > :not(#seekRow) { display: none; }
 body.compact #ctrl { padding-block: 2px; }
 body.compact:not(.fs) #stage { max-height: 22vh; max-height: 22dvh; }
+/* 收合時讓清單至少比畫面高一點，結果很少時也不會因為收合而被彈回頂端 */
+body.compact .view:not([hidden]) { min-height: 100%; }

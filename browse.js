@@ -319,11 +319,14 @@ document.addEventListener('click', e => {
 
 /* ========== 手機直向：往上滑清單時收合上方，讓清單多顯示幾筆 ========== */
 const sideBySide = matchMedia('(min-width: 900px), (orientation: landscape) and (max-height: 540px)');
+let lockUntil = 0;   // 收合／展開會改變版面並觸發捲動事件，短時間內忽略，避免來回跳動
 $('panel').addEventListener('scroll', () => {
-  const top = $('panel').scrollTop, body = document.body;
+  const top = $('panel').scrollTop, body = document.body, now = Date.now();
   if (sideBySide.matches) { body.classList.remove('compact'); return; }
-  if (top > 60 && !body.classList.contains('compact')) body.classList.add('compact');
-  else if (top <= 4 && body.classList.contains('compact')) body.classList.remove('compact');   // 滑回最上面就展開
+  if (now < lockUntil) return;
+  const compact = body.classList.contains('compact');
+  if (top > 60 && !compact) { body.classList.add('compact'); lockUntil = now + 400; }
+  else if (top <= 4 && compact) { body.classList.remove('compact'); lockUntil = now + 400; }   // 滑回最上面就展開
 }, { passive: true });
 
 /* ========== 對外介面（給 series.js） ========== */
