@@ -317,6 +317,15 @@ document.addEventListener('click', e => {
   else if (t.dataset.goto) Tabs.show(t.dataset.goto);
 });
 
+/* ========== 手機直向：往上滑清單時收合上方，讓清單多顯示幾筆 ========== */
+const sideBySide = matchMedia('(min-width: 900px), (orientation: landscape) and (max-height: 540px)');
+$('panel').addEventListener('scroll', () => {
+  const top = $('panel').scrollTop, body = document.body;
+  if (sideBySide.matches) { body.classList.remove('compact'); return; }
+  if (top > 60 && !body.classList.contains('compact')) body.classList.add('compact');
+  else if (top <= 4 && body.classList.contains('compact')) body.classList.remove('compact');   // 滑回最上面就展開
+}, { passive: true });
+
 /* ========== 對外介面（給 series.js） ========== */
 window.Browse = {
   API, makeList, Tabs, esc, statusHTML, card, cache, count, ago, openChannel,

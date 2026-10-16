@@ -272,3 +272,10 @@ body[data-mode="local"][data-bg="on"] #stage::after {
   color: var(--muted); font-size: 13px; letter-spacing: .06em; pointer-events: none;
 }
 #ctrl .group:has(#pmShuffle) { flex-wrap: wrap; }
+
+/* ---------- 收合模式（手機直向往上滑清單時） ---------- */
+#stage { transition: max-height .2s ease; }
+body.compact #bar, body.compact #msg { display: none; }
+body.compact #ctrl > :not(#seekRow) { display: none; }
+body.compact #ctrl { padding-block: 2px; }
+body.compact:not(.fs) #stage { max-height: 22vh; max-height: 22dvh; }
