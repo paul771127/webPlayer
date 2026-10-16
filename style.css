@@ -277,7 +277,8 @@ body[data-mode="local"][data-bg="on"] #stage::after {
 
 /* ---------- 收合模式（手機直向往上滑清單時） ---------- */
 #stage { transition: max-height .2s ease; }
-body.compact #bar, body.compact #msg { display: none; }
+body.compact #msg { display: none; }
+body.compact #bar { padding-block: 6px; }   /* 收合時搜尋列保留，隨時可以打字 */
 body.compact #ctrl > :not(#seekRow) { display: none; }
 body.compact #ctrl { padding-block: 2px; }
 body.compact:not(.fs) #stage { max-height: 22vh; max-height: 22dvh; }

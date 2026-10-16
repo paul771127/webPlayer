@@ -152,6 +152,7 @@ const Tabs = {
     document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== 'v-' + name; });
     store.set('tab', tab);
     $('panel').scrollTop = 0;
+    document.body.classList.remove('compact');
   }
 };
 $('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) Tabs.show(b.dataset.tab); });
@@ -319,15 +320,17 @@ document.addEventListener('click', e => {
 
 /* ========== 手機直向：往上滑清單時收合上方，讓清單多顯示幾筆 ========== */
 const sideBySide = matchMedia('(min-width: 900px), (orientation: landscape) and (max-height: 540px)');
-let lockUntil = 0;   // 收合／展開會改變版面並觸發捲動事件，短時間內忽略，避免來回跳動
-$('panel').addEventListener('scroll', () => {
+let lockUntil = 0, recheck = 0;   // 收合／展開會改變版面並觸發捲動事件，短時間內忽略，避免來回跳動
+function checkCompact() {
   const top = $('panel').scrollTop, body = document.body, now = Date.now();
   if (sideBySide.matches) { body.classList.remove('compact'); return; }
-  if (now < lockUntil) return;
+  clearTimeout(recheck);
+  if (now < lockUntil) { recheck = setTimeout(checkCompact, lockUntil - now + 20); return; }   // 鎖定結束後再判斷一次，不會卡在收合
   const compact = body.classList.contains('compact');
   if (top > 60 && !compact) { body.classList.add('compact'); lockUntil = now + 400; }
   else if (top <= 4 && compact) { body.classList.remove('compact'); lockUntil = now + 400; }   // 滑回最上面就展開
-}, { passive: true });
+}
+$('panel').addEventListener('scroll', checkCompact, { passive: true });
 
 /* ========== 對外介面（給 series.js） ========== */
 window.Browse = {
