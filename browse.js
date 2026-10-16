@@ -320,16 +320,25 @@ document.addEventListener('click', e => {
 
 /* ========== 手機直向：往上滑清單時收合上方，讓清單多顯示幾筆 ========== */
 const sideBySide = matchMedia('(min-width: 900px), (orientation: landscape) and (max-height: 540px)');
-let lockUntil = 0, recheck = 0;   // 收合／展開會改變版面並觸發捲動事件，短時間內忽略，避免來回跳動
+// 往上滑（看更多結果）→ 影片收到畫面外；往下滑（任何位置）→ 影片回來
+let lockUntil = 0, recheck = 0, lastTop = 0, travel = 0;   // 收合／展開會改變版面並觸發捲動，短時間內忽略，避免來回跳動
+const setCompact = on => {
+  document.body.classList.toggle('compact', on);
+  lockUntil = Date.now() + 400; travel = 0; lastTop = $('panel').scrollTop;
+};
 function checkCompact() {
   const top = $('panel').scrollTop, body = document.body, now = Date.now();
   if (sideBySide.matches) { body.classList.remove('compact'); return; }
   clearTimeout(recheck);
-  if (now < lockUntil) { recheck = setTimeout(checkCompact, lockUntil - now + 20); return; }   // 鎖定結束後再判斷一次，不會卡在收合
+  if (now < lockUntil) { lastTop = top; recheck = setTimeout(checkCompact, lockUntil - now + 20); return; }
+  const d = top - lastTop; lastTop = top;
+  travel = (Math.sign(d) === Math.sign(travel) ? travel : 0) + d;    // 同方向累計滑動距離
   const compact = body.classList.contains('compact');
-  if (top > 60 && !compact) { body.classList.add('compact'); lockUntil = now + 400; }
-  else if (top <= 4 && compact) { body.classList.remove('compact'); lockUntil = now + 400; }   // 滑回最上面就展開
+  if (!compact && top > 40 && travel > 30) setCompact(true);
+  else if (compact && (top <= 4 || travel < -50)) setCompact(false);
 }
+// 點了影片要播放時，把影片叫回來
+App.hooks.onPlay = (prev => (id, meta) => { if (document.body.classList.contains('compact')) setCompact(false); prev(id, meta); })(App.hooks.onPlay);
 $('panel').addEventListener('scroll', checkCompact, { passive: true });
 
 /* ========== 對外介面（給 series.js） ========== */

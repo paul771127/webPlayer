@@ -279,8 +279,8 @@ body[data-mode="local"][data-bg="on"] #stage::after {
 #stage { transition: max-height .2s ease; }
 body.compact #msg { display: none; }
 body.compact #bar { padding-block: 6px; }   /* 收合時搜尋列保留，隨時可以打字 */
-body.compact #ctrl > :not(#seekRow) { display: none; }
-body.compact #ctrl { padding-block: 2px; }
-body.compact:not(.fs) #stage { max-height: 22vh; max-height: 22dvh; }
+body.compact #ctrl { display: none; }
+/* 影片收到畫面外但不移除，聲音照常播放 */
+body.compact:not(.fs) #stage { max-height: 0; }
 /* 收合時讓清單至少比畫面高一點，結果很少時也不會因為收合而被彈回頂端 */
 body.compact .view:not([hidden]) { min-height: 100%; }
