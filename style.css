@@ -284,3 +284,26 @@ body.compact #ctrl { display: none; }
 body.compact:not(.fs) #stage { max-height: 0; }
 /* 收合時讓清單至少比畫面高一點，結果很少時也不會因為收合而被彈回頂端 */
 body.compact .view:not([hidden]) { min-height: 100%; }
+
+/* ---------- 片庫：分類、劇情、排行 ---------- */
+.chips.scroll {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  margin-inline: -16px; padding-inline: 16px; touch-action: pan-x pan-y;
+}
+.chips.scroll::-webkit-scrollbar { display: none; }
+.chips.scroll button { flex: none; }
+.chips.small button { padding: 4px 12px; font-size: 13px; color: var(--muted); }
+.chips.small button.on { color: #fff; }
+.seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button {
+  background: none; border: 0; border-left: 1px solid var(--line); padding: 9px 2px;
+  color: var(--muted); cursor: pointer; font-size: 13px;
+}
+.seg button:first-child { border-left: 0; }
+.seg button.on { background: var(--accent); color: #fff; }
+.rank {
+  position: absolute; left: 0; top: 0; min-width: 26px; padding: 2px 6px; z-index: 1;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 13px; text-align: center;
+  border-bottom-right-radius: 6px; font-variant-numeric: tabular-nums;
+}
+.vid:nth-child(-n+3) .rank { background: #e8a33d; }

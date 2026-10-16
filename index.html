@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d0f12">
 <title>webPlayer</title>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
   <!-- 播放區 -->
@@ -69,7 +69,7 @@
 
     <nav id="tabs">
       <button type="button" data-tab="search">搜尋</button>
-      <button type="button" data-tab="series">劇集</button>
+      <button type="button" data-tab="series">片庫</button>
       <button type="button" data-tab="local">本機</button>
       <button type="button" data-tab="channel">頻道</button>
       <button type="button" data-tab="subs">訂閱</button>
@@ -111,32 +111,16 @@
         <input id="srKw" class="input" type="search" enterkeyhint="search" placeholder="劇名或關鍵字（可留空）" aria-label="劇名">
         <button class="btn" type="submit">找劇</button>
       </form>
-      <div class="chips" id="srCat">
-        <button type="button" data-cat="all">全部</button>
-        <button type="button" data-cat="short">短劇</button>
-        <button type="button" data-cat="anime">動畫</button>
-        <button type="button" data-cat="drama">劇集</button>
-      </div>
-      <div class="filters four">
-        <select id="srKind" aria-label="形式">
-          <option value="playlist">整季系列（播放清單）</option>
-          <option value="long">合輯長片（單支 20 分鐘以上）</option>
-        </select>
+      <div class="chips scroll" id="srCat"></div>
+      <div class="chips scroll small" id="srGenre"></div>
+      <div class="seg" id="srMode"></div>
+      <div class="selBar">
+        <span class="meta" id="srNote"></span>
         <select id="srMin" aria-label="集數">
           <option value="5">5 集以上</option>
           <option value="10">10 集以上</option>
           <option value="20">20 集以上</option>
           <option value="50">50 集以上</option>
-        </select>
-        <select id="srWithin" aria-label="上傳時間">
-          <option value="0">不限時間</option>
-          <option value="30">近一個月</option>
-          <option value="365">近一年</option>
-        </select>
-        <select id="srOrder" aria-label="排序">
-          <option value="relevance">最相關</option>
-          <option value="date">最新</option>
-          <option value="viewCount">最多觀看</option>
         </select>
       </div>
       <div class="list" id="srCont"></div>
@@ -236,10 +220,10 @@
     </div>
   </section>
 
-<script src="config.js?v=14"></script>
-<script src="app.js?v=14"></script>
-<script src="browse.js?v=14"></script>
-<script src="series.js?v=14"></script>
-<script src="local.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="app.js?v=15"></script>
+<script src="browse.js?v=15"></script>
+<script src="series.js?v=15"></script>
+<script src="local.js?v=15"></script>
 </body>
 </html>

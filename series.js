@@ -1,5 +1,5 @@
-/* webPlayer — 劇集：搜尋短劇／動畫／劇集的「系列播放清單」或「合輯長片」
-   排除預告、花絮、解說；系列可看全部集數、自動播下一集、記住看到第幾集 */
+/* webPlayer — 片庫：像網路電視一樣依分類（短劇、陸劇、韓劇…）× 劇情（穿越、懸疑…）瀏覽，
+   有今日熱播、本月熱播、最新上架與整季系列；排除預告、花絮、解說；系列可看全部集數、自動播下一集 */
 'use strict';
 (() => {
 const { API, makeList, Tabs, esc, statusHTML, card, count, ago } = Browse;
@@ -9,14 +9,27 @@ const $ = id => document.getElementById(id);
 /* ========== 設定 ========== */
 // 標題含這些字的清單或集數會被排除
 const JUNK = /預告|预告|trailer|teaser|花絮|幕後|幕后|reaction|解說|解说|精彩片段|精華|精华|片頭曲|片尾曲|\bMV\b|\bOST\b|highlights?|recap|搶先看|抢先看/i;
-const CATS = {
-  all:   '短劇|微短劇|動畫|動漫|電視劇|連續劇',
-  short: '短劇|微短劇|短剧',
-  anime: '動畫|動漫|anime',
-  drama: '電視劇|連續劇|影集|电视剧'
-};
 const NEG = ' -預告 -預告片 -trailer -teaser -花絮 -reaction -解說';
 const MAX_EPS = 500;
+
+// 片庫分類：q 是搜尋用的關鍵字，long 表示排行榜只找 20 分鐘以上的整集（排除片段）
+const DRAMA_GENRES = ['愛情', '古裝', '穿越', '懸疑', '喜劇', '家庭', '職場', '校園', '武俠', '奇幻', '科幻', '動作', '犯罪', '醫療', '歷史', '恐怖'];
+const CATS = {
+  all:   { name: '全部',   q: '短劇|電視劇|連續劇|韓劇|日劇|美劇|動畫', long: false, genres: ['愛情', '古裝', '穿越', '懸疑', '喜劇', '復仇', '霸總', '甜寵', '奇幻', '熱血'] },
+  short: { name: '短劇',   q: '短劇|微短劇|短剧', long: false, genres: ['霸總', '甜寵', '逆襲', '穿越', '重生', '復仇', '古裝', '戰神', '神醫', '萌寶', '虐戀', '懸疑'] },
+  cn:    { name: '陸劇',   q: '陸劇|大陸劇|國產劇|电视剧', long: true, genres: DRAMA_GENRES },
+  tw:    { name: '台劇',   q: '台劇|台灣劇|偶像劇|八點檔', long: true, genres: DRAMA_GENRES },
+  kr:    { name: '韓劇',   q: '韓劇|韩剧|Korean drama', long: true, genres: DRAMA_GENRES },
+  jp:    { name: '日劇',   q: '日劇|日剧|Japanese drama', long: true, genres: DRAMA_GENRES },
+  us:    { name: '美劇',   q: '美劇|美剧|影集|TV series', long: true, genres: DRAMA_GENRES },
+  anime: { name: '卡通動畫', q: '動畫|動漫|卡通|anime', long: true, genres: ['熱血', '冒險', '搞笑', '校園', '戀愛', '奇幻', '異世界', '機甲', '運動', '治癒', '親子', '推理'] }
+};
+const MODES = {
+  today:  { name: '今日熱播', note: '今天上架的影片中，觀看次數最多的' },
+  month:  { name: '本月熱播', note: '近 30 天上架的影片中，觀看次數最多的' },
+  latest: { name: '最新上架', note: '依上架時間，最新的在前' },
+  series: { name: '整季系列', note: '完整的整季播放清單，點進去可看全部集數' }
+};
 
 /* ========== 資料 ========== */
 const plCache = new Map();
@@ -33,27 +46,6 @@ async function playlists(ids) {
     };
   });
   return ids.map(id => map[id]).filter(Boolean);
-}
-
-async function searchSeries(o) {
-  const long = o.form === 'long';
-  const p = {
-    part: 'snippet', type: long ? 'video' : 'playlist', maxResults: 25, order: o.order,
-    regionCode: 'TW', relevanceLanguage: 'zh-Hant',
-    q: `${o.kw} ${CATS[o.cat]}${long ? ' 全集|合集|完整版' : ''}${NEG}`.trim()
-  };
-  if (long) { p.videoDuration = 'long'; p.videoEmbeddable = 'true'; }
-  if (+o.within) p.publishedAfter = new Date(Date.now() - o.within * 864e5).toISOString();
-  if (o.page) p.pageToken = o.page;
-  const j = await API.get('search', p);
-  if (long) {
-    const items = await API.details(j.items.map(i => i.id.videoId).filter(Boolean));
-    return { items: items.filter(v => !JUNK.test(v.title)), next: j.nextPageToken };
-  }
-  const pls = await playlists(j.items.map(i => i.id.playlistId).filter(Boolean));
-  pls.forEach(pl => plCache.set(pl.id, pl));
-  pls.forEach(pl => { pl.drama = true; });
-  return { items: pls.filter(pl => pl.count >= o.min && !JUNK.test(pl.title)), next: j.nextPageToken, render: plCard };
 }
 
 // 讀取整個播放清單（每 50 集 1 單位），並補上每集長度
@@ -106,34 +98,97 @@ function plCard(pl) {
   </button>`;
 }
 
-/* ========== 搜尋畫面 ========== */
+/* ========== 片庫畫面：分類 × 劇情 × 排行 ========== */
 const list = makeList($('srResults'), $('moreSr'));
-let cat = store.get('srCat', 'all'), searched = false;
-const FIELDS = ['srKind', 'srMin', 'srWithin', 'srOrder'];
-const saved = store.get('srFilters', {});
-FIELDS.forEach(f => { if (saved[f]) $(f).value = saved[f]; });
+let cat = store.get('srCat', 'all'), genre = store.get('srGenre', ''), mode = store.get('srMode', 'today');
+if (!CATS[cat]) cat = 'all';
+if (!MODES[mode]) mode = 'today';
+let loaded = false;
 
-function syncUi() {
-  document.querySelectorAll('#srCat button').forEach(b => b.classList.toggle('on', b.dataset.cat === cat));
-  $('srMin').disabled = $('srKind').value === 'long';
+// 同樣的條件 1 小時內直接用存下來的結果，省每日搜尋額度
+async function cached(key, fn) {
+  const all = store.get('srCache', {}), hit = all[key];
+  if (hit && Date.now() - hit.at < 36e5) return hit.v;
+  const v = await fn();
+  all[key] = { at: Date.now(), v };
+  Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(30).forEach(k => delete all[k]);
+  store.set('srCache', all);
+  return v;
 }
+
+async function fetchCatalog(o) {
+  const c = CATS[o.cat];
+  const q = `${o.kw} ${o.genre} ${c.q}${NEG}`.replace(/\s+/g, ' ').trim();
+  const base = { part: 'snippet', maxResults: 25, regionCode: 'TW', relevanceLanguage: 'zh-Hant', q };
+  if (o.page) base.pageToken = o.page;
+  if (o.mode === 'series') {
+    const j = await API.get('search', { ...base, type: 'playlist', order: 'relevance' });
+    const pls = await playlists(j.items.map(i => i.id.playlistId).filter(Boolean));
+    return { kind: 'pl', items: pls.filter(pl => pl.count >= o.min && !JUNK.test(pl.title)), next: j.nextPageToken };
+  }
+  const p = { ...base, type: 'video', videoEmbeddable: 'true', order: o.mode === 'latest' ? 'date' : 'viewCount' };
+  if (o.mode === 'today') p.publishedAfter = new Date(Date.now() - 864e5).toISOString();
+  if (o.mode === 'month') p.publishedAfter = new Date(Date.now() - 30 * 864e5).toISOString();
+  if (c.long) p.videoDuration = 'long';
+  const j = await API.get('search', p);
+  const vids = await API.details(j.items.map(i => i.id.videoId).filter(Boolean));
+  return { kind: 'vid', items: vids.filter(v => !JUNK.test(v.title)), next: j.nextPageToken };
+}
+
+function renderChips() {
+  $('srCat').innerHTML = Object.entries(CATS).map(([k, c]) =>
+    `<button type="button" data-cat="${k}" class="${k === cat ? 'on' : ''}">${c.name}</button>`).join('');
+  $('srGenre').innerHTML = ['', ...CATS[cat].genres].map(g =>
+    `<button type="button" data-genre="${esc(g)}" class="${g === genre ? 'on' : ''}">${g || '全部劇情'}</button>`).join('');
+  $('srMode').innerHTML = Object.entries(MODES).map(([k, m]) =>
+    `<button type="button" data-mode="${k}" class="${k === mode ? 'on' : ''}">${m.name}</button>`).join('');
+  $('srNote').textContent = MODES[mode].note;
+  $('srMin').hidden = mode !== 'series';
+}
+
 function runSearch() {
-  searched = true;
-  const o = {
-    kw: $('srKw').value.trim(), cat, form: $('srKind').value, min: +$('srMin').value,
-    within: $('srWithin').value, order: $('srOrder').value
+  loaded = true;
+  if (!API.key) { $('srResults').innerHTML = statusHTML('NOKEY'); return; }
+  const o = { kw: $('srKw').value.trim(), cat, genre, mode, min: +$('srMin').value };
+  let rank = 0;
+  const ranked = mode === 'today' || mode === 'month';
+  const renderVid = v => {
+    const html = card(v);
+    return ranked ? html.replace('<span class="thumb">', `<span class="thumb"><span class="rank">${++rank}</span>`) : html;
   };
-  list.start(page => searchSeries({ ...o, page }));
+  list.start(async page => {
+    const r = await cached(JSON.stringify({ ...o, page: page || '' }), () => fetchCatalog({ ...o, page }));
+    if (r.kind === 'pl') {
+      r.items.forEach(pl => { pl.drama = true; plCache.set(pl.id, pl); });
+      return { items: r.items, next: r.next, render: plCard };
+    }
+    r.items.forEach(v => Browse.cache.set(v.id, v));
+    return { items: r.items, next: r.next, render: renderVid };
+  });
 }
+
 $('srCat').addEventListener('click', e => {
   const b = e.target.closest('button[data-cat]'); if (!b) return;
-  cat = b.dataset.cat; store.set('srCat', cat); syncUi(); runSearch();
+  cat = b.dataset.cat; store.set('srCat', cat);
+  if (!CATS[cat].genres.includes(genre)) { genre = ''; store.set('srGenre', ''); }
+  renderChips(); runSearch();
 });
-FIELDS.forEach(f => $(f).addEventListener('change', () => {
-  store.set('srFilters', Object.fromEntries(FIELDS.map(k => [k, $(k).value])));
-  syncUi(); if (searched) runSearch();
-}));
+$('srGenre').addEventListener('click', e => {
+  const b = e.target.closest('button[data-genre]'); if (!b) return;
+  genre = b.dataset.genre; store.set('srGenre', genre); renderChips(); runSearch();
+});
+$('srMode').addEventListener('click', e => {
+  const b = e.target.closest('button[data-mode]'); if (!b) return;
+  mode = b.dataset.mode; store.set('srMode', mode); renderChips(); runSearch();
+});
+$('srMin').value = String(store.get('srMinEps', 5));
+$('srMin').addEventListener('change', () => { store.set('srMinEps', +$('srMin').value); runSearch(); });
 $('srForm').addEventListener('submit', e => { e.preventDefault(); $('srKw').blur(); runSearch(); });
+// 第一次切到「片庫」就自動載入目前分類
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab="series"]');
+  if (b && !loaded) runSearch();
+});
 
 /* ========== 系列／播放清單頁 ========== */
 let cur = null;      // 正在看的清單 { pl, eps }
@@ -400,9 +455,8 @@ window.Series = {
 };
 
 /* ========== 起始畫面 ========== */
-syncUi();
+renderChips();
 renderContinue();
-$('srResults').innerHTML = statusHTML(API.key
-  ? '點上面的類型開始找，也可以輸入劇名。只會列出 ' + $('srMin').selectedOptions[0].text + '的完整系列。'
-  : 'NOKEY');
+$('srResults').innerHTML = statusHTML(API.key ? '選分類和劇情，就會列出排行。' : 'NOKEY');
+if (API.key && store.get('tab') === 'series') runSearch();
 })();
