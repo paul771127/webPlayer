@@ -71,6 +71,16 @@ const video = $('local'), audio = $('localAudio');
 let media = video;                       // 本機播放用的元素：一般是 <video>，背景播放時改用 <audio>
 let pendingSeek = 0;
 let mode = 'yt', localKey = null, localUrl = null;
+/* 廣告偵測：YouTube 沒有提供「現在是廣告」的資訊，用長度判斷——
+   廣告播放時 getDuration() 會變成廣告的長度，比正片短很多 */
+const contentDur = {};                 // 影片 ID → 正片長度（秒）
+function ytInAd() {
+  if (mode !== 'yt' || !ready) return false;
+  try {
+    const id = player.getVideoData().video_id, d = player.getDuration();
+    return !!(id && contentDur[id] && d > 0 && d < contentDur[id] - 2);
+  } catch (e) { return false; }
+}
 const YTE = {
   ok: () => ready,
   id: () => { try { return player.getVideoData().video_id || null; } catch (e) { return null; } },
@@ -232,6 +242,7 @@ function play(id, meta) {
   Resume.save();                       // 先存下前一部的進度
   setMode('yt');
   msg('');
+  if (meta && meta.dur) contentDur[id] = meta.dur;   // 從搜尋結果已知的正片長度
   player.loadVideoById({ videoId: id, startSeconds: Resume.startFor(id) });
   hooks.onPlay(id, meta);
 }
@@ -244,7 +255,7 @@ const Resume = (() => {
 
   function save() {
     const e = E();
-    if (!on || !e.ok()) return;
+    if (!on || !e.ok() || ytInAd()) return;     // 廣告時不記錄進度
     const id = e.id(); if (!id) return;
     const t = e.time(), dur = e.dur();
     const d = all();
@@ -275,7 +286,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) Resum
 // 連續快速滑動時合併成一次跳轉，減少 YouTube 重複緩衝
 let seekTarget = null, seekAt = 0;
 function seek(delta) {
-  const e = E(); if (!e.ok()) return;
+  const e = E(); if (!e.ok() || ytInAd()) return;   // 廣告中不能跳轉
   const now = Date.now();
   const base = (seekTarget !== null && now - seekAt < CFG.mergeMs) ? seekTarget : e.time();
   const dur = e.dur() || Infinity;
@@ -315,12 +326,18 @@ function paintBar(t, dur) {
 function tick() {
   const e = E();
   if (!e.ok() || dragging) return;
+  if (mode === 'yt') {                                   // 記下正片長度（取看過的最大值，前置廣告比正片短）
+    try { const id = player.getVideoData().video_id, d = player.getDuration();
+      if (id && d > 0 && !ytInAd()) contentDur[id] = Math.max(contentDur[id] || 0, d); } catch (err) {}
+    if (ytInAd()) { $('tCur').textContent = '廣告'; return; }   // 廣告中：進度條停在原處
+  }
   const dur = e.dur(), t = e.time();
   if (seekHold) {
-    if (Math.abs(t - seekHold.to) < 3) seekHold = null;                       // 播放器已經跳到位
-    else if (Date.now() < seekHold.until) return;                              // 還在緩衝，先別動進度條
-    else if (!seekHold.retried) { seekHold.retried = true; seekHold.until = Date.now() + 2500; e.seek(seekHold.to); return; }  // 沒跳成功就再跳一次
-    else seekHold = null;
+    if (Math.abs(t - seekHold.to) < 3) seekHold = null;                // 已經跳到位
+    else if (Date.now() < seekHold.until) return;                      // 還在緩衝，先別動進度條
+    else if (!seekHold.retried && t < seekHold.to - 5) {               // 廣告結束後被帶回前面：跳回要去的位置（只補一次）
+      seekHold.retried = true; seekHold.until = Date.now() + 4000; e.seek(seekHold.to); return;
+    } else seekHold = null;
   }
   if (dur > 0 && +bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
   bar.value = t; $('tCur').textContent = fmt(t);
@@ -338,9 +355,9 @@ function endDrag() {                              // 放開：跳到該位置（
   if (!dragging) return;
   dragging = false;
   const to = +bar.value;
-  if (!E().ok() || !(+bar.max > 0)) return;
+  if (!E().ok() || !(+bar.max > 0) || ytInAd()) return;
   E().seek(to); seekTarget = null;
-  seekHold = { to, until: Date.now() + 2500, retried: false };
+  seekHold = { to, until: Date.now() + 4000, retried: false };
 }
 bar.addEventListener('pointerdown', startDrag);
 bar.addEventListener('touchstart', startDrag, { passive: true });
