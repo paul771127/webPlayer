@@ -307,3 +307,10 @@ body.compact .view:not([hidden]) { min-height: 100%; }
   border-bottom-right-radius: 6px; font-variant-numeric: tabular-nums;
 }
 .vid:nth-child(-n+3) .rank { background: #e8a33d; }
+
+/* ---------- 讓 YouTube 的「略過廣告」按得到 ----------
+   手勢層蓋住整個影片，會擋住 YouTube 自己右下角的「略過」按鈕。
+   播 YouTube 時在右下角留一塊缺口，點那裡會直接點到 YouTube 播放器。 */
+body[data-mode="yt"] #touch {
+  clip-path: polygon(0 0, 100% 0, 100% 68%, 62% 68%, 62% 100%, 0 100%);
+}
