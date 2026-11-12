@@ -303,7 +303,8 @@ $('rate').onchange = e => {
 
 /* ========== 進度條 + 全螢幕細進度線 ========== */
 const bar = $('seek'), thin = $('thin').firstElementChild;
-let dragging = false;
+let dragging = false;     // 手指按在進度條上（從按下就算，不等到移動）
+let seekHold = null;      // 剛跳轉完：{ to, until }，播放器還沒跟上前不覆蓋進度條，避免看起來跳回去
 function paintBar(t, dur) {
   const pct = dur ? (t / dur) * 100 : 0;
   bar.style.setProperty('--played', pct + '%');
@@ -315,20 +316,37 @@ function tick() {
   const e = E();
   if (!e.ok() || dragging) return;
   const dur = e.dur(), t = e.time();
-  if (+bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
+  if (seekHold) {
+    if (Math.abs(t - seekHold.to) < 3) seekHold = null;                       // 播放器已經跳到位
+    else if (Date.now() < seekHold.until) return;                              // 還在緩衝，先別動進度條
+    else if (!seekHold.retried) { seekHold.retried = true; seekHold.until = Date.now() + 2500; e.seek(seekHold.to); return; }  // 沒跳成功就再跳一次
+    else seekHold = null;
+  }
+  if (dur > 0 && +bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
   bar.value = t; $('tCur').textContent = fmt(t);
   paintBar(t, dur);
 }
 setInterval(tick, 250);
-bar.addEventListener('input', () => {             // 拖曳中：只更新顯示
+
+const startDrag = () => { dragging = true; };
+const showDrag = () => {                          // 拖曳中：只更新顯示
   dragging = true;
   $('tCur').textContent = fmt(+bar.value);
   paintBar(+bar.value, +bar.max);
-});
-bar.addEventListener('change', () => {            // 放開：跳到該位置
-  if (E().ok()) { E().seek(+bar.value); seekTarget = null; }
+};
+function endDrag() {                              // 放開：跳到該位置（各種放開事件只處理一次）
+  if (!dragging) return;
   dragging = false;
-});
+  const to = +bar.value;
+  if (!E().ok() || !(+bar.max > 0)) return;
+  E().seek(to); seekTarget = null;
+  seekHold = { to, until: Date.now() + 2500, retried: false };
+}
+bar.addEventListener('pointerdown', startDrag);
+bar.addEventListener('touchstart', startDrag, { passive: true });
+bar.addEventListener('input', showDrag);
+['change', 'pointerup', 'pointercancel', 'touchend', 'touchcancel'].forEach(ev =>
+  bar.addEventListener(ev, () => setTimeout(endDrag, 0)));   // 等瀏覽器把最後的位置寫進 value 再讀
 
 /* ========== 全螢幕 ========== */
 // 有原生全螢幕就用（Android / 桌機），沒有（iPhone）就用網頁內全螢幕
