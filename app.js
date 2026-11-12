@@ -335,9 +335,11 @@ function tick() {
   if (seekHold) {
     if (Math.abs(t - seekHold.to) < 3) seekHold = null;                // 已經跳到位
     else if (Date.now() < seekHold.until) return;                      // 還在緩衝，先別動進度條
-    else if (!seekHold.retried && t < seekHold.to - 5) {               // 廣告結束後被帶回前面：跳回要去的位置（只補一次）
-      seekHold.retried = true; seekHold.until = Date.now() + 4000; e.seek(seekHold.to); return;
-    } else seekHold = null;
+    else {
+      // 廣告結束後被帶回前面：不自動再跳（每次跳轉都可能再觸發廣告），改成讓使用者自己決定
+      if (t < seekHold.to - 5) offerJump(seekHold.to);
+      seekHold = null;
+    }
   }
   if (dur > 0 && +bar.max !== dur) { bar.max = dur; $('tDur').textContent = fmt(dur); }
   bar.value = t; $('tCur').textContent = fmt(t);
@@ -345,6 +347,13 @@ function tick() {
 }
 setInterval(tick, 250);
 
+// 在影片外的訊息列顯示「跳回」按鈕，按了才跳
+function offerJump(to) {
+  const m = $('msg');
+  m.innerHTML = `廣告後回到了前面。<button type="button" class="btn small" id="jumpBack">跳回 ${fmt(to)}</button>`;
+  $('jumpBack').onclick = () => { msg(''); if (E().ok()) { E().seek(to); seekHold = { to, until: Date.now() + 4000 }; } };
+  setTimeout(() => { if ($('jumpBack')) msg(''); }, 15000);
+}
 const startDrag = () => { dragging = true; };
 const showDrag = () => {                          // 拖曳中：只更新顯示
   dragging = true;

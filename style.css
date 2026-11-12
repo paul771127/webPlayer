@@ -314,3 +314,4 @@ body.compact .view:not([hidden]) { min-height: 100%; }
 body[data-mode="yt"] #touch {
   clip-path: polygon(0 0, 100% 0, 100% 68%, 62% 68%, 62% 100%, 0 100%);
 }
+#msg .btn { margin-left: 8px; }
